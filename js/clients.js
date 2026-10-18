@@ -1,0 +1,162 @@
+import { addMonths, brl, calculateLateAmounts, escapeHtml, initials, installmentStatus, isoDate, normalizePhone, parseLocalDate, shortDate, uid } from './utils.js';
+import { getData, updateData } from './storage.js';
+
+let clientModal, detailsModal;
+
+export function initClients(showToast) {
+  clientModal = bootstrap.Modal.getOrCreateInstance('#clientModal');
+  detailsModal = bootstrap.Modal.getOrCreateInstance('#clientDetailsModal');
+
+  document.querySelectorAll('[data-open-client-modal]').forEach(btn => btn.addEventListener('click', () => openClientModal()));
+  document.getElementById('clientForm').addEventListener('submit', e => saveClient(e, showToast));
+  document.getElementById('clientSearch').addEventListener('input', renderClients);
+  document.getElementById('clientStatusFilter').addEventListener('change', renderClients);
+
+  document.addEventListener('click', e => {
+    const open = e.target.closest('[data-open-client]');
+    if (open) openClientDetails(open.dataset.openClient, showToast);
+    const edit = e.target.closest('[data-edit-client]');
+    if (edit) openClientModal(edit.dataset.editClient);
+    const del = e.target.closest('[data-delete-client]');
+    if (del) deleteClient(del.dataset.deleteClient, showToast);
+    const pay = e.target.closest('[data-toggle-payment]');
+    if (pay) togglePayment(pay.dataset.togglePayment, pay.dataset.clientId, showToast);
+    const whatsapp = e.target.closest('[data-whatsapp-client]');
+    if (whatsapp) openWhatsApp(whatsapp.dataset.whatsappClient);
+  });
+}
+
+export function renderClients() {
+  const data = getData();
+  const query = document.getElementById('clientSearch')?.value.trim().toLowerCase() || '';
+  const filter = document.getElementById('clientStatusFilter')?.value || 'all';
+  let clients = data.clients.map(c => ({ c, ins: data.installments.filter(i => i.clientId === c.id) }));
+  clients = clients.filter(({c,ins}) => {
+    const text = `${c.name} ${c.phone} ${c.email}`.toLowerCase();
+    if (query && !text.includes(query)) return false;
+    const open = ins.filter(i=>!i.paidAt);
+    const overdue = open.some(i=>installmentStatus(i,data.settings.dueSoonDays).key==='overdue');
+    if (filter==='open' && open.length===0) return false;
+    if (filter==='paid' && open.length>0) return false;
+    if (filter==='overdue' && !overdue) return false;
+    return true;
+  });
+  document.getElementById('clientCountLabel').textContent = `${clients.length} cliente(s)`;
+  document.getElementById('clientsGrid').innerHTML = clients.length ? clients.map(({c,ins}) => clientCard(c,ins,data.settings.dueSoonDays)).join('') : `<div class="col-12"><div class="panel empty-state"><i class="bi bi-people"></i>Nenhum cliente encontrado.</div></div>`;
+}
+
+function clientCard(client, ins, dueDays) {
+  const data = getData();
+  const total = ins.reduce((sum,i)=>sum+Number(i.amount||0),0);
+  const paid = ins.filter(i=>i.paidAt).reduce((sum,i)=>sum+Number(i.paidAmount ?? i.amount ?? 0),0);
+  const open = ins.filter(i=>!i.paidAt).reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0);
+  const paidCount = ins.filter(i=>i.paidAt).length;
+  const progress = ins.length ? Math.round((paidCount/ins.length)*100) : 0;
+  const hasOverdue = ins.some(i=>installmentStatus(i,dueDays).key==='overdue');
+  const status = open <= .001 ? ['paid','Quitado'] : hasOverdue ? ['overdue','Em atraso'] : ['open','Em aberto'];
+  return `<div class="col-12 col-md-6 col-xxl-4"><div class="client-card"><div class="client-top"><div class="d-flex gap-3"><div class="client-avatar">${initials(client.name)}</div><div><div class="client-name">${escapeHtml(client.name)}</div><div class="client-meta">${escapeHtml(client.phone || client.email || 'Sem contato')}</div></div></div><span class="status-pill status-${status[0]}">${status[1]}</span></div><div class="money-row"><div class="money-block"><small>Contrato</small><strong>${brl.format(total)}</strong></div><div class="money-block text-end"><small>Saldo atualizado</small><strong>${brl.format(open)}</strong></div></div><div class="d-flex justify-content-between small text-secondary mt-3"><span>${paidCount}/${ins.length} pagas</span><span>${progress}%</span></div><div class="progress mt-2"><div class="progress-bar" style="width:${progress}%"></div></div><div class="client-actions"><button class="btn btn-sm btn-outline-light" data-open-client="${client.id}"><i class="bi bi-eye me-1"></i>Ver</button>${client.phone ? `<button class="btn btn-sm btn-outline-success" data-whatsapp-client="${client.id}"><i class="bi bi-whatsapp"></i></button>` : ''}<button class="btn btn-sm btn-outline-secondary" data-edit-client="${client.id}"><i class="bi bi-pencil"></i></button></div></div></div>`;
+}
+function openClientModal(id = null) {
+  const form = document.getElementById('clientForm');
+  form.reset();
+  document.getElementById('clientId').value = '';
+  document.getElementById('clientInstallments').value = 1;
+  const d = new Date(); d.setDate(d.getDate()+7);
+  document.getElementById('clientFirstDue').value = isoDate(d);
+  document.getElementById('clientModalTitle').textContent = id ? 'Editar cliente' : 'Novo cliente';
+  if (id) {
+    const data = getData(); const c = data.clients.find(x=>x.id===id); const ins = data.installments.filter(x=>x.clientId===id).sort((a,b)=>a.number-b.number);
+    if (!c) return;
+    const total = ins.reduce((s,i)=>s+Number(i.amount||0),0);
+    document.getElementById('clientId').value = c.id;
+    document.getElementById('clientName').value = c.name;
+    document.getElementById('clientPhone').value = c.phone || '';
+    document.getElementById('clientEmail').value = c.email || '';
+    document.getElementById('clientNotes').value = c.notes || '';
+    document.getElementById('clientTotal').value = total.toFixed(2);
+    document.getElementById('clientInstallments').value = ins.length || 1;
+    document.getElementById('clientFirstDue').value = ins[0]?.dueDate || isoDate(d);
+  }
+  clientModal.show();
+}
+
+function saveClient(e, showToast) {
+  e.preventDefault();
+  const id = document.getElementById('clientId').value;
+  const payload = {
+    name: document.getElementById('clientName').value.trim(),
+    phone: document.getElementById('clientPhone').value.trim(),
+    email: document.getElementById('clientEmail').value.trim(),
+    notes: document.getElementById('clientNotes').value.trim()
+  };
+  const total = Number(document.getElementById('clientTotal').value);
+  const count = Number(document.getElementById('clientInstallments').value);
+  const firstDue = parseLocalDate(document.getElementById('clientFirstDue').value);
+  if (!payload.name || !total || total < 0 || !count || !firstDue) return;
+
+  updateData(data => {
+    let clientId = id;
+    if (id) {
+      const idx = data.clients.findIndex(c=>c.id===id);
+      data.clients[idx] = { ...data.clients[idx], ...payload, updatedAt:new Date().toISOString() };
+      const old = data.installments.filter(i=>i.clientId===id).sort((a,b)=>a.number-b.number);
+      const paidMap = new Map(old.map(i=>[i.number,i.paidAt]));
+      data.installments = data.installments.filter(i=>i.clientId!==id);
+      createInstallments(data, id, total, count, firstDue, paidMap);
+    } else {
+      clientId = uid('cli');
+      data.clients.push({ id:clientId, ...payload, createdAt:new Date().toISOString() });
+      createInstallments(data, clientId, total, count, firstDue, new Map());
+    }
+  });
+  clientModal.hide(); showToast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
+}
+
+function createInstallments(data, clientId, total, count, firstDue, paidMap) {
+  const base = Math.floor((total / count) * 100) / 100;
+  for (let i=0;i<count;i++) {
+    const n=i+1; const amount = n===count ? +(total-base*(count-1)).toFixed(2) : base;
+    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, createdAt:new Date().toISOString() });
+  }
+}
+
+export function openClientDetails(id, showToast = ()=>{}) {
+  const data = getData(); const client = data.clients.find(c=>c.id===id); if (!client) return;
+  const ins = data.installments.filter(i=>i.clientId===id).sort((a,b)=>a.number-b.number);
+  const contracted = ins.reduce((sum,i)=>sum+Number(i.amount||0),0);
+  const paid = ins.filter(i=>i.paidAt).reduce((sum,i)=>sum+Number(i.paidAmount ?? i.amount ?? 0),0);
+  const openUpdated = ins.filter(i=>!i.paidAt).reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0);
+  const additions = ins.filter(i=>!i.paidAt).reduce((sum,i)=>{const x=calculateLateAmounts(i,data.settings);return sum+x.interest+x.fee},0);
+  document.getElementById('detailsClientName').textContent = client.name;
+  document.getElementById('clientDetailsBody').innerHTML = `<div class="row g-3 mb-4"><div class="col-6 col-lg"><div class="detail-stat"><small>Contrato</small><strong>${brl.format(contracted)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Já pago</small><strong>${brl.format(paid)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Acréscimos atuais</small><strong>${brl.format(additions)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Saldo atualizado</small><strong>${brl.format(openUpdated)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Parcelas</small><strong>${ins.filter(i=>i.paidAt).length}/${ins.length}</strong></div></div></div><div class="small text-secondary mb-3"><i class="bi bi-percent me-1"></i>Juros configurados: ${Number(data.settings.lateInterestMonthly ?? 20).toLocaleString('pt-BR')}% ao mês proporcional aos dias de atraso + multa de ${Number(data.settings.lateFeePercent ?? 2).toLocaleString('pt-BR')}%.</div><div class="d-flex flex-wrap gap-2 mb-4">${client.phone?`<a class="btn btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${normalizePhone(client.phone)}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>`:''}<button class="btn btn-outline-light" data-edit-client="${client.id}" data-bs-dismiss="modal"><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-outline-danger ms-md-auto" data-delete-client="${client.id}"><i class="bi bi-trash me-1"></i>Excluir</button></div><h3 class="h6 mb-3">Parcelas</h3><div class="installment-list">${ins.map(i=>installmentRow(i,data.settings,client.id)).join('') || '<div class="empty-state">Sem parcelas.</div>'}</div>${client.notes?`<div class="mt-4 p-3 rounded-3 border border-secondary-subtle"><small class="text-secondary d-block mb-1">Observações</small>${escapeHtml(client.notes)}</div>`:''}`;
+  detailsModal.show();
+}
+
+function installmentRow(i,settings,clientId){
+  const s=installmentStatus(i,settings.dueSoonDays); const calc=calculateLateAmounts(i,settings);
+  const valueHtml = i.paidAt
+    ? `<div><strong>${brl.format(Number(i.paidAmount ?? i.amount))}</strong>${Number(i.paidAmount ?? i.amount)>Number(i.amount)?`<div class="small text-secondary">Original ${brl.format(i.amount)}</div>`:''}</div>`
+    : calc.daysLate>0
+      ? `<div><strong>${brl.format(calc.total)}</strong><div class="small text-warning">+ ${brl.format(calc.interest+calc.fee)} de acréscimos</div></div>`
+      : `<strong>${brl.format(i.amount)}</strong>`;
+  return `<div class="installment-row"><strong>#${i.number}</strong><span>${shortDate.format(parseLocalDate(i.dueDate))}</span><span>${valueHtml}</span><span><span class="status-pill status-${s.key}">${s.label}</span></span><button class="btn btn-sm ${i.paidAt?'btn-outline-secondary':'btn-outline-success'}" data-toggle-payment="${i.id}" data-client-id="${clientId}">${i.paidAt?'<i class="bi bi-arrow-counterclockwise me-1"></i>Desfazer':'<i class="bi bi-check2 me-1"></i>Marcar paga'}</button></div>`
+}
+
+function togglePayment(id,clientId,showToast){
+  updateData(data=>{
+    const i=data.installments.find(x=>x.id===id); if(!i)return;
+    if(i.paidAt){ i.paidAt=null; delete i.paidAmount; delete i.lateFeePaid; delete i.daysLatePaid; }
+    else { const calc=calculateLateAmounts(i,data.settings); i.paidAt=new Date().toISOString(); i.paidAmount=calc.total; i.lateFeePaid=calc.fee; i.daysLatePaid=calc.daysLate; }
+  });
+  showToast('Pagamento atualizado.'); openClientDetails(clientId,showToast)
+}
+function deleteClient(id,showToast){const data=getData();const c=data.clients.find(x=>x.id===id);if(!c)return;if(!confirm(`Excluir ${c.name} e todas as parcelas?`))return;updateData(d=>{d.clients=d.clients.filter(x=>x.id!==id);d.installments=d.installments.filter(x=>x.clientId!==id)});detailsModal?.hide();showToast('Cliente excluído.');}
+function openWhatsApp(id){
+  const data=getData(); const c=data.clients.find(x=>x.id===id); if(!c?.phone)return;
+  const ins=data.installments.filter(i=>i.clientId===id&&!i.paidAt);
+  const saldo=ins.reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0);
+  const acrescimos=ins.reduce((sum,i)=>{const x=calculateLateAmounts(i,data.settings);return sum+x.interest+x.fee},0);
+  const next=ins.sort((a,b)=>a.dueDate.localeCompare(b.dueDate))[0];
+  const msg=`Olá, ${c.name}! Passando para lembrar que há um saldo atualizado de ${brl.format(saldo)} na JV Perfumes${acrescimos>0?` (incluindo ${brl.format(acrescimos)} de acréscimos por atraso)`:''}${next?`, com próxima parcela em ${shortDate.format(parseLocalDate(next.dueDate))}`:''}.`;
+  window.open(`https://wa.me/${normalizePhone(c.phone)}?text=${encodeURIComponent(msg)}`,'_blank','noopener')
+}

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#071728">
+  <meta name="description" content="Gerenciador de clientes, parcelas e estoque da JV Perfumes">
+  <title>JV Perfumes • Gestão</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/img/icon-192.png">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar d-none d-lg-flex flex-column">
+      <div class="brand-block">
+        <img src="assets/img/logo.png" alt="JV Perfumes" class="brand-logo">
+        <div>
+          <div class="brand-title">JV PERFUMES</div>
+          <div class="brand-subtitle">Gestão</div>
+        </div>
+      </div>
+
+      <nav class="nav nav-pills flex-column gap-2 mt-4" id="desktopNav">
+        <button class="nav-link active" data-page="dashboard"><i class="bi bi-grid-1x2-fill"></i> Visão geral</button>
+        <button class="nav-link" data-page="clients"><i class="bi bi-people-fill"></i> Clientes</button>
+        <button class="nav-link" data-page="inventory"><i class="bi bi-box-seam-fill"></i> Estoque</button>
+        <button class="nav-link" data-page="notifications"><i class="bi bi-bell-fill"></i> Alertas</button>
+      </nav>
+
+      <div class="mt-auto sidebar-footer">
+        <button class="btn btn-outline-gold w-100 mb-2" id="exportBtn"><i class="bi bi-download me-2"></i>Backup</button>
+        <label class="btn btn-outline-light w-100 mb-2" for="importFile"><i class="bi bi-upload me-2"></i>Restaurar</label>
+        <input type="file" class="d-none" id="importFile" accept="application/json">
+        <button class="btn btn-dark-subtle w-100 d-none" id="installBtn"><i class="bi bi-phone me-2"></i>Instalar app</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="mobile-header d-lg-none">
+        <div class="d-flex align-items-center gap-2">
+          <img src="assets/img/icon-192.png" alt="JV" class="mobile-logo">
+          <div><strong>JV Perfumes</strong><small>Gestão</small></div>
+        </div>
+        <button class="btn btn-icon" data-bs-toggle="offcanvas" data-bs-target="#mobileMenu" aria-label="Menu"><i class="bi bi-list"></i></button>
+      </header>
+
+      <div class="container-fluid content-wrap">
+        <section class="app-page" id="page-dashboard">
+          <div class="page-heading">
+            <div><span class="eyebrow">Painel</span><h1>Visão geral</h1><p>Clientes, recebimentos, vencimentos e estoque em um só lugar.</p></div>
+            <button class="btn btn-gold" data-open-client-modal><i class="bi bi-plus-lg me-1"></i>Novo cliente</button>
+          </div>
+
+          <div class="row g-3" id="kpiCards"></div>
+
+          <div class="row g-4 mt-1">
+            <div class="col-12 col-xl-8">
+              <div class="panel h-100">
+                <div class="panel-header">
+                  <div><span class="panel-kicker">Cobranças</span><h2>Próximos vencimentos</h2></div>
+                  <button class="btn btn-sm btn-outline-light" data-go-page="clients">Ver clientes</button>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-dark table-clean align-middle mb-0">
+                    <thead><tr><th>Cliente</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="upcomingTable"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-xl-4">
+              <div class="panel h-100">
+                <div class="panel-header"><div><span class="panel-kicker">Estoque</span><h2>Itens críticos</h2></div></div>
+                <div id="lowStockList" class="stack-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-4 mt-1">
+            <div class="col-12 col-lg-7">
+              <div class="panel">
+                <div class="panel-header"><div><span class="panel-kicker">Financeiro</span><h2>Recebimentos</h2></div></div>
+                <canvas id="receivablesChart" height="120"></canvas>
+              </div>
+            </div>
+            <div class="col-12 col-lg-5">
+              <div class="panel h-100">
+                <div class="panel-header"><div><span class="panel-kicker">Atividade</span><h2>Resumo rápido</h2></div></div>
+                <div id="summaryList" class="summary-list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="app-page d-none" id="page-clients">
+          <div class="page-heading">
+            <div><span class="eyebrow">Relacionamento</span><h1>Clientes e parcelas</h1><p>Acompanhe pagamentos e saiba exatamente quem ainda tem saldo aberto.</p></div>
+            <button class="btn btn-gold" data-open-client-modal><i class="bi bi-person-plus-fill me-1"></i>Adicionar cliente</button>
+          </div>
+
+          <div class="panel mb-4">
+            <div class="row g-3 align-items-end">
+              <div class="col-12 col-md-5"><label class="form-label">Buscar</label><div class="input-group input-group-dark"><span class="input-group-text"><i class="bi bi-search"></i></span><input id="clientSearch" class="form-control" placeholder="Nome, telefone ou e-mail"></div></div>
+              <div class="col-6 col-md-3"><label class="form-label">Status</label><select id="clientStatusFilter" class="form-select form-select-dark"><option value="all">Todos</option><option value="open">Com saldo</option><option value="paid">Quitados</option><option value="overdue">Em atraso</option></select></div>
+              <div class="col-6 col-md-4 text-md-end"><span class="text-secondary" id="clientCountLabel"></span></div>
+            </div>
+          </div>
+
+          <div class="row g-3" id="clientsGrid"></div>
+        </section>
+
+        <section class="app-page d-none" id="page-inventory">
+          <div class="page-heading">
+            <div><span class="eyebrow">Produtos</span><h1>Estoque</h1><p>Controle perfumes, frascos, válvulas, essências e demais itens.</p></div>
+            <button class="btn btn-gold" data-bs-toggle="modal" data-bs-target="#productModal"><i class="bi bi-plus-lg me-1"></i>Novo produto</button>
+          </div>
+
+          <div class="row g-3 mb-4" id="stockKpis"></div>
+          <div class="panel">
+            <div class="row g-3 align-items-end mb-3">
+              <div class="col-12 col-md-5"><label class="form-label">Buscar produto</label><div class="input-group input-group-dark"><span class="input-group-text"><i class="bi bi-search"></i></span><input id="productSearch" class="form-control" placeholder="Produto, marca, categoria ou SKU"></div></div>
+              <div class="col-6 col-md-3"><label class="form-label">Filtro</label><select id="stockFilter" class="form-select form-select-dark"><option value="all">Todos</option><option value="low">Estoque baixo</option><option value="out">Sem estoque</option></select></div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-dark table-clean align-middle mb-0">
+                <thead><tr><th>Produto</th><th>Categoria</th><th>Qtd.</th><th>Mínimo</th><th>Custo</th><th>Venda</th><th>Status</th><th></th></tr></thead>
+                <tbody id="productsTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="app-page d-none" id="page-notifications">
+          <div class="page-heading">
+            <div><span class="eyebrow">Lembretes</span><h1>Alertas de vencimento</h1><p>Configure avisos para não deixar nenhuma parcela passar despercebida.</p></div>
+          </div>
+
+          <div class="row g-4">
+            <div class="col-12 col-lg-7">
+              <div class="panel">
+                <div class="d-flex align-items-start gap-3">
+                  <div class="notification-icon"><i class="bi bi-bell-fill"></i></div>
+                  <div class="flex-grow-1"><h2 class="h4">Notificações no aparelho</h2><p class="text-secondary">Ao permitir notificações, o sistema avisa sobre cobranças próximas e vencidas. Para melhor experiência no celular, instale o site como aplicativo.</p><button class="btn btn-gold" id="enableNotificationsBtn"><i class="bi bi-bell me-2"></i>Ativar notificações</button><div class="small text-secondary mt-2" id="notificationStatus"></div></div>
+                </div>
+                <hr class="border-secondary-subtle my-4">
+                <div class="row g-3 align-items-end">
+                  <div class="col-12 col-sm-6"><label class="form-label">Avisar com antecedência</label><select id="dueSoonDays" class="form-select form-select-dark"><option value="1">1 dia antes</option><option value="3">3 dias antes</option><option value="5">5 dias antes</option><option value="7">7 dias antes</option><option value="10">10 dias antes</option></select></div>
+                  <div class="col-12 col-sm-6"><button id="testNotificationBtn" class="btn btn-outline-light w-100"><i class="bi bi-send me-2"></i>Testar notificação</button></div>
+                </div>
+                <hr class="border-secondary-subtle my-4">
+                <div class="d-flex align-items-center gap-2 mb-3"><i class="bi bi-percent text-warning"></i><div><div class="fw-semibold">Juros por atraso</div><div class="small text-secondary">O valor é calculado proporcionalmente aos dias vencidos.</div></div></div>
+                <div class="row g-3">
+                  <div class="col-12 col-sm-6"><label class="form-label">Juros ao mês (%)</label><div class="input-group input-group-dark"><input id="lateInterestMonthly" class="form-control" type="number" min="0" max="999" step="0.1" value="20"><span class="input-group-text">% a.m.</span></div></div>
+                  <div class="col-12 col-sm-6"><label class="form-label">Multa única (%)</label><div class="input-group input-group-dark"><input id="lateFeePercent" class="form-control" type="number" min="0" max="100" step="0.1" value="2"><span class="input-group-text">%</span></div></div>
+                </div>
+                <div class="form-hint mt-3"><i class="bi bi-calculator me-2"></i>Ex.: R$ 100 atrasados por 15 dias com 20% a.m. = R$ 10 de juros proporcionais, além da multa configurada.</div>
+              </div>
+            </div>
+            <div class="col-12 col-lg-5">
+              <div class="panel h-100">
+                <span class="panel-kicker">Central</span><h2>Alertas atuais</h2>
+                <div id="alertsList" class="stack-list mt-3"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel mt-4 help-panel">
+            <div class="d-flex gap-3"><i class="bi bi-info-circle-fill text-info fs-4"></i><div><strong>Sobre alertas no celular</strong><p class="mb-0 text-secondary">Esta versão já usa notificações do navegador e PWA. O aviso é verificado ao abrir o sistema e, em aparelhos compatíveis, pelo serviço em segundo plano. Para push 100% confiável mesmo com o app totalmente fechado, a próxima etapa é conectar um backend de push (Firebase, OneSignal ou Supabase + serviço de push).</p></div></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="offcanvas offcanvas-start offcanvas-dark" tabindex="-1" id="mobileMenu">
+    <div class="offcanvas-header"><div class="brand-title">JV PERFUMES</div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button></div>
+    <div class="offcanvas-body">
+      <nav class="nav nav-pills flex-column gap-2" id="mobileNav">
+        <button class="nav-link active" data-page="dashboard" data-bs-dismiss="offcanvas"><i class="bi bi-grid-1x2-fill"></i> Visão geral</button>
+        <button class="nav-link" data-page="clients" data-bs-dismiss="offcanvas"><i class="bi bi-people-fill"></i> Clientes</button>
+        <button class="nav-link" data-page="inventory" data-bs-dismiss="offcanvas"><i class="bi bi-box-seam-fill"></i> Estoque</button>
+        <button class="nav-link" data-page="notifications" data-bs-dismiss="offcanvas"><i class="bi bi-bell-fill"></i> Alertas</button>
+      </nav>
+    </div>
+  </div>
+
+  <div class="modal fade" id="clientModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content modal-dark">
+        <div class="modal-header"><div><span class="panel-kicker">Cadastro</span><h2 class="modal-title h4" id="clientModalTitle">Novo cliente</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <form id="clientForm">
+          <div class="modal-body">
+            <input type="hidden" id="clientId">
+            <div class="row g-3">
+              <div class="col-12 col-md-6"><label class="form-label">Nome *</label><input class="form-control form-control-dark" id="clientName" required></div>
+              <div class="col-12 col-md-6"><label class="form-label">Telefone</label><input class="form-control form-control-dark" id="clientPhone" inputmode="tel" placeholder="(18) 99999-9999"></div>
+              <div class="col-12 col-md-6"><label class="form-label">E-mail</label><input class="form-control form-control-dark" id="clientEmail" type="email"></div>
+              <div class="col-12 col-md-6"><label class="form-label">Valor total *</label><div class="input-group input-group-dark"><span class="input-group-text">R$</span><input class="form-control" id="clientTotal" type="number" min="0" step="0.01" required></div></div>
+              <div class="col-6 col-md-3"><label class="form-label">Parcelas *</label><input class="form-control form-control-dark" id="clientInstallments" type="number" min="1" max="60" value="1" required></div>
+              <div class="col-6 col-md-4"><label class="form-label">1º vencimento *</label><input class="form-control form-control-dark" id="clientFirstDue" type="date" required></div>
+              <div class="col-12 col-md-5"><label class="form-label">Observações</label><input class="form-control form-control-dark" id="clientNotes" placeholder="Ex.: perfume importado, tampa para trocar..."></div>
+            </div>
+            <div class="form-hint mt-3"><i class="bi bi-magic me-2"></i>As parcelas são geradas automaticamente e podem ser marcadas como pagas individualmente.</div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-gold" type="submit">Salvar cliente</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="clientDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content modal-dark">
+        <div class="modal-header"><div><span class="panel-kicker">Cliente</span><h2 class="modal-title h4" id="detailsClientName">Detalhes</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body" id="clientDetailsBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="productModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content modal-dark">
+        <div class="modal-header"><div><span class="panel-kicker">Estoque</span><h2 class="modal-title h4" id="productModalTitle">Novo produto</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <form id="productForm">
+          <div class="modal-body">
+            <input type="hidden" id="productId">
+            <div class="row g-3">
+              <div class="col-12 col-md-6"><label class="form-label">Produto *</label><input class="form-control form-control-dark" id="productName" required></div>
+              <div class="col-6 col-md-3"><label class="form-label">Categoria</label><input class="form-control form-control-dark" id="productCategory" placeholder="Perfume, frasco..."></div>
+              <div class="col-6 col-md-3"><label class="form-label">Marca</label><input class="form-control form-control-dark" id="productBrand"></div>
+              <div class="col-12 col-md-4"><label class="form-label">SKU</label><input class="form-control form-control-dark" id="productSku"></div>
+              <div class="col-4 col-md-2"><label class="form-label">Qtd.</label><input class="form-control form-control-dark" id="productQty" type="number" min="0" value="0"></div>
+              <div class="col-4 col-md-2"><label class="form-label">Mínimo</label><input class="form-control form-control-dark" id="productMin" type="number" min="0" value="2"></div>
+              <div class="col-4 col-md-2"><label class="form-label">Custo</label><input class="form-control form-control-dark" id="productCost" type="number" min="0" step="0.01"></div>
+              <div class="col-12 col-md-2"><label class="form-label">Venda</label><input class="form-control form-control-dark" id="productPrice" type="number" min="0" step="0.01"></div>
+            </div>
+          </div>
+          <div class="modal-footer"><button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-gold" type="submit">Salvar produto</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="stockMoveModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content modal-dark">
+        <div class="modal-header"><h2 class="modal-title h5">Movimentar estoque</h2><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <form id="stockMoveForm"><div class="modal-body"><input type="hidden" id="moveProductId"><div class="mb-3"><label class="form-label">Produto</label><div id="moveProductName" class="fw-semibold"></div></div><div class="row g-3"><div class="col-6"><label class="form-label">Tipo</label><select class="form-select form-select-dark" id="moveType"><option value="in">Entrada</option><option value="out">Saída</option></select></div><div class="col-6"><label class="form-label">Quantidade</label><input class="form-control form-control-dark" id="moveQty" type="number" min="1" value="1" required></div><div class="col-12"><label class="form-label">Observação</label><input class="form-control form-control-dark" id="moveNote" placeholder="Compra, venda, uso em manutenção..."></div></div></div><div class="modal-footer"><button class="btn btn-outline-light" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-gold" type="submit">Confirmar</button></div></form>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3"><div id="appToast" class="toast toast-dark" role="alert"><div class="d-flex"><div class="toast-body" id="toastMessage">Pronto.</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="js/app.bundle.js"></script>
+</body>
+</html>
