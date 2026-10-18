@@ -65,7 +65,7 @@
                 </div>
                 <div class="table-responsive">
                   <table class="table table-dark table-clean align-middle mb-0">
-                    <thead><tr><th>Cliente</th><th>Parcela</th><th>Vencimento</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                    <thead><tr><th>Cliente</th><th>Compras em aberto</th><th>Próximo vencimento</th><th>Saldo total</th><th>Status</th><th></th></tr></thead>
                     <tbody id="upcomingTable"></tbody>
                   </table>
                 </div>
@@ -198,6 +198,7 @@
               <div class="col-12 col-md-6"><label class="form-label">Nome *</label><input class="form-control form-control-dark" id="clientName" required></div>
               <div class="col-12 col-md-6"><label class="form-label">Telefone</label><input class="form-control form-control-dark" id="clientPhone" inputmode="tel" placeholder="(18) 99999-9999"></div>
               <div class="col-12 col-md-6"><label class="form-label">E-mail</label><input class="form-control form-control-dark" id="clientEmail" type="email"></div>
+              <div class="col-12"><label class="form-label">Perfume da compra *</label><input class="form-control form-control-dark" id="clientPurchaseProduct" placeholder="Ex.: Dior Sauvage 100ml" required></div>
               <div class="col-12 col-md-6"><label class="form-label">Valor total *</label><div class="input-group input-group-dark"><span class="input-group-text">R$</span><input class="form-control" id="clientTotal" type="number" min="0" step="0.01" required></div></div>
               <div class="col-6 col-md-3"><label class="form-label">Parcelas *</label><input class="form-control form-control-dark" id="clientInstallments" type="number" min="1" max="60" value="1" required></div>
               <div class="col-6 col-md-4"><label class="form-label">1º vencimento *</label><input class="form-control form-control-dark" id="clientFirstDue" type="date" required></div>
