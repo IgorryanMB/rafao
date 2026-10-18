@@ -184,9 +184,10 @@ function getMetrics(data = getData()) {
   const overdue = open.filter(i => installmentStatus(i, data.settings.dueSoonDays).key === 'overdue');
   const soon = open.filter(i => ['soon'].includes(installmentStatus(i, data.settings.dueSoonDays).key));
   const low = data.products.filter(p => p.qty <= p.minStock);
-  const received = paid.reduce((sum, i) => sum + Number(i.paidAmount ?? i.amount ?? 0), 0);
+  const received = data.installments.reduce((sum, i) => sum + Number(i.paidAmount || (i.paidAt ? i.amount : 0)), 0);
+  const partial = data.installments.filter(i => !i.paidAt && Number(i.paidAmount || 0) > 0);
   const receivable = open.reduce((sum, i) => sum + calculateLateAmounts(i, data.settings).total, 0);
-  return { open, paid, overdue, soon, low, received, receivable };
+  return { open, paid, partial, overdue, soon, low, received, receivable };
 }
 
 function renderDashboard() {
@@ -194,7 +195,7 @@ function renderDashboard() {
   const m = getMetrics(data);
   const cards = [
     ['bi-cash-stack', 'A receber', brl.format(m.receivable), `${m.open.length} parcela(s) em aberto`],
-    ['bi-check2-circle', 'Já recebido', brl.format(m.received), `${m.paid.length} parcela(s) pagas`],
+    ['bi-check2-circle', 'Já recebido', brl.format(m.received), `${m.paid.length} quitadas · ${m.partial.length} parciais`],
     ['bi-alarm', 'Vencendo / atrasadas', String(m.soon.length + m.overdue.length), `${m.overdue.length} em atraso`],
     ['bi-box-seam', 'Estoque baixo', String(m.low.length), `${data.products.length} produto(s) cadastrados`]
   ];
@@ -208,7 +209,12 @@ function renderDashboard() {
     return `<tr><td><strong>${client?.name || 'Cliente removido'}</strong></td><td>${inst.number}</td><td>${shortDate.format(parseLocalDate(inst.dueDate))}</td><td>${brl.format(calculateLateAmounts(inst,data.settings).total)}</td><td><span class="status-pill status-${status.key}">${status.label}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-light" data-open-client="${inst.clientId}">Abrir</button></td></tr>`;
   }).join('') : `<tr><td colspan="6"><div class="empty-state"><i class="bi bi-check-circle"></i>Nenhuma cobrança pendente.</div></td></tr>`;
 
-  document.getElementById('lowStockList').innerHTML = m.low.length ? m.low.slice(0,6).map(p => `<div class="stack-item"><div><div class="stack-item-title">${p.name}</div><div class="stack-item-meta">Mínimo ${p.minStock} un.</div></div><span class="stack-badge">${p.qty} un.</span></div>`).join('') : `<div class="empty-state"><i class="bi bi-box2-heart"></i>Estoque saudável.</div>`;
+  const payments = (data.paymentHistory || []).slice().sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
+  document.getElementById('lowStockList').innerHTML = payments.length ? payments.map(p => {
+    const client = data.clients.find(c => c.id === p.clientId);
+    const date = p.createdAt ? shortDate.format(new Date(p.createdAt)) : 'Data indisponível';
+    return `<div class="stack-item"><div><div class="stack-item-title">${client?.name || 'Cliente removido'}</div><div class="stack-item-meta">${date} · ${brl.format(Number(p.applied ?? p.amount ?? 0))} aplicado</div></div><span class="stack-badge">${brl.format(Number(p.amount || 0))}</span></div>`;
+  }).join('') : `<div class="empty-state"><i class="bi bi-cash-coin"></i>Nenhum pagamento registrado ainda.</div>`;
 
   document.getElementById('summaryList').innerHTML = `
     <div class="summary-row"><span>Clientes ativos</span><strong>${data.clients.length}</strong></div>
@@ -230,7 +236,7 @@ function renderChart(data) {
     labels.push(d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''));
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     const subset = data.installments.filter(x => x.dueDate.startsWith(ym));
-    paidData.push(subset.filter(x=>x.paidAt).reduce((s,x)=>s+Number(x.paidAmount ?? x.amount ?? 0),0));
+    paidData.push(subset.reduce((s,x)=>s+Number(x.paidAmount || (x.paidAt ? x.amount : 0)),0));
     openData.push(subset.filter(x=>!x.paidAt).reduce((s,x)=>s+calculateLateAmounts(x,data.settings).total,0));
   }
   const ctx = document.getElementById('receivablesChart');
@@ -260,6 +266,10 @@ function initClients(showToast) {
     if (del) deleteClient(del.dataset.deleteClient, showToast);
     const pay = e.target.closest('[data-toggle-payment]');
     if (pay) togglePayment(pay.dataset.togglePayment, pay.dataset.clientId, showToast);
+    const submitPayment = e.target.closest('[data-payment-submit]');
+    if (submitPayment) registerPayment(submitPayment.dataset.paymentSubmit, submitPayment.dataset.clientId, showToast);
+    const cancelPayment = e.target.closest('[data-payment-cancel]');
+    if (cancelPayment) document.getElementById('paymentEntryCard')?.remove();
     const whatsapp = e.target.closest('[data-whatsapp-client]');
     if (whatsapp) openWhatsApp(whatsapp.dataset.whatsappClient);
   });
@@ -388,13 +398,25 @@ function togglePayment(id,clientId,showToast){
     updateData(data=>{const i=data.installments.find(x=>x.id===id);if(i){i.paidAt=null;delete i.paidAmount;delete i.lateFeePaid;delete i.daysLatePaid;}});
     showToast('Pagamento desfeito.');openClientDetails(clientId,showToast);return;
   }
-  const initial=calculateLateAmounts(selected,snapshot.settings).total;
-  const raw=prompt(`Quanto o cliente está pagando agora?\nSaldo desta parcela: ${brl.format(initial)}\nO excedente será aplicado nas próximas parcelas em ordem.`,initial.toFixed(2).replace('.',','));
-  if(raw===null)return;
-  const amount=Number(raw.trim().replace(/\\./g,'').replace(',','.'));
-  if(!Number.isFinite(amount)||amount<=0){alert('Informe um valor maior que zero.');return;}
-  const chargeInterest=confirm('Calcular juros e multa nas parcelas vencidas?\n\nOK = sim\nCancelar = não');
-  let remaining=amount,appliedTotal=0,fullyPaid=0;
+  document.getElementById('paymentEntryCard')?.remove();
+  const due=calculateLateAmounts(selected,snapshot.settings).total;
+  const list=document.querySelector('#clientDetailsBody .installment-list');
+  if(!list)return;
+  list.insertAdjacentHTML('beforebegin',`<div class="payment-entry-card" id="paymentEntryCard">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3"><div><span class="panel-kicker">Novo recebimento</span><h3 class="h5 mt-1 mb-1">Parcela #${selected.number}</h3><div class="small text-secondary">Saldo atual: ${brl.format(due)}. O excedente pode abater as próximas parcelas.</div></div><button type="button" class="btn-close btn-close-white" aria-label="Fechar" data-payment-cancel></button></div>
+    <div class="row g-3 align-items-end"><div class="col-12 col-md-5"><label class="form-label" for="paymentAmount">Valor recebido (R$)</label><input id="paymentAmount" class="form-control form-control-dark" type="number" min="0.01" step="0.01" value="${due.toFixed(2)}" required></div>
+    <div class="col-12 col-md-4"><div class="form-check"><input class="form-check-input" id="paymentChargeInterest" type="checkbox" checked><label class="form-check-label small" for="paymentChargeInterest">Calcular juros e multa nas parcelas vencidas</label></div></div>
+    <div class="col-12 col-md-3 d-flex gap-2"><button class="btn btn-outline-light flex-fill" type="button" data-payment-cancel>Cancelar</button><button class="btn btn-gold flex-fill" type="button" data-payment-submit="${id}" data-client-id="${clientId}">Registrar</button></div></div></div>`);
+  document.getElementById('paymentAmount')?.focus();
+}
+function registerPayment(id,clientId,showToast){
+  const snapshot=getData(), selected=snapshot.installments.find(x=>x.id===id);
+  const field=document.getElementById('paymentAmount');
+  if(!selected||!field)return;
+  const amount=Number(field.value);
+  if(!Number.isFinite(amount)||amount<=0){field.classList.add('is-invalid');field.focus();return;}
+  const chargeInterest=document.getElementById('paymentChargeInterest')?.checked ?? true;
+  let remaining=amount,appliedTotal=0;
   updateData(data=>{
     const list=data.installments.filter(x=>x.clientId===clientId&&!x.paidAt&&x.number>=selected.number).sort((a,b)=>a.number-b.number);
     for(const inst of list){
@@ -402,20 +424,20 @@ function togglePayment(id,clientId,showToast){
       const cfg={...data.settings,chargeLateInterest:chargeInterest,chargeLateFee:chargeInterest};
       const due=calculateLateAmounts(inst,cfg).total;
       const applied=Math.min(remaining,due);
-      const wasPaid=Number(inst.paidAmount||0);
-      inst.paidAmount=+(wasPaid+applied).toFixed(2);
+      inst.paidAmount=+(Number(inst.paidAmount||0)+applied).toFixed(2);
       remaining=+(remaining-applied).toFixed(2);appliedTotal=+(appliedTotal+applied).toFixed(2);
       if(due-applied<=0.009){
         const finalCalc=calculateLateAmounts({...inst,paidAmount:0,paidAt:null},cfg);
         inst.paidAt=new Date().toISOString();
         inst.paidAmount=+(Number(inst.amount||0)+finalCalc.interest+finalCalc.fee).toFixed(2);
-        inst.lateFeePaid=finalCalc.fee;inst.daysLatePaid=finalCalc.daysLate;fullyPaid++;
+        inst.lateFeePaid=finalCalc.fee;inst.daysLatePaid=finalCalc.daysLate;
       }
     }
     data.paymentHistory ||= [];
     data.paymentHistory.push({id:uid('pay'),clientId,amount,applied:appliedTotal,unapplied:remaining,chargeInterest,createdAt:new Date().toISOString()});
   });
-  showToast(`Pagamento de ${brl.format(amount)} registrado; ${brl.format(appliedTotal)} aplicado em parcelas${remaining>0.009?`; excedente não aplicado: ${brl.format(remaining)}`:''}.`);
+  document.getElementById('paymentEntryCard')?.remove();
+  showToast(`Pagamento de ${brl.format(amount)} registrado.`);
   openClientDetails(clientId,showToast);
 }
 function deleteClient(id,showToast){const data=getData();const c=data.clients.find(x=>x.id===id);if(!c)return;if(!confirm(`Excluir ${c.name} e todas as parcelas?`))return;updateData(d=>{d.clients=d.clients.filter(x=>x.id!==id);d.installments=d.installments.filter(x=>x.clientId!==id)});detailsModal?.hide();showToast('Cliente excluído.');}
