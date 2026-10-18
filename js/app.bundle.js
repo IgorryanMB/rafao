@@ -246,7 +246,7 @@ function renderChart(data) {
 
 /* ===== clients.js ===== */
 
-let clientModal, detailsModal;
+let clientModal, detailsModal, purchaseClientId = null;
 
 function initClients(showToast) {
   clientModal = bootstrap.Modal.getOrCreateInstance('#clientModal');
@@ -262,6 +262,8 @@ function initClients(showToast) {
     if (open) openClientDetails(open.dataset.openClient, showToast);
     const edit = e.target.closest('[data-edit-client]');
     if (edit) openClientModal(edit.dataset.editClient);
+    const newPurchase = e.target.closest('[data-new-purchase]');
+    if (newPurchase) { const clientId = newPurchase.dataset.newPurchase; detailsModal?.hide(); setTimeout(() => openPurchaseModal(clientId), 150); }
     const del = e.target.closest('[data-delete-client]');
     if (del) deleteClient(del.dataset.deleteClient, showToast);
     const pay = e.target.closest('[data-toggle-payment]');
@@ -307,7 +309,9 @@ function clientCard(client, ins, dueDays) {
 }
 function openClientModal(id = null) {
   const form = document.getElementById('clientForm');
+  purchaseClientId = null;
   form.reset();
+  ['clientTotal','clientInstallments','clientFirstDue'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
   document.getElementById('clientId').value = '';
   document.getElementById('clientInstallments').value = 1;
   const d = new Date(); d.setDate(d.getDate()+7);
@@ -325,7 +329,29 @@ function openClientModal(id = null) {
     document.getElementById('clientTotal').value = total.toFixed(2);
     document.getElementById('clientInstallments').value = ins.length || 1;
     document.getElementById('clientFirstDue').value = ins[0]?.dueDate || isoDate(d);
+    ['clientTotal','clientInstallments','clientFirstDue'].forEach(fieldId => { document.getElementById(fieldId).disabled = true; });
   }
+  clientModal.show();
+}
+
+function openPurchaseModal(clientId) {
+  const data = getData();
+  const client = data.clients.find(c => c.id === clientId);
+  if (!client) return;
+  purchaseClientId = clientId;
+  const form = document.getElementById('clientForm');
+  form.reset();
+  document.getElementById('clientId').value = '';
+  document.getElementById('clientName').value = client.name;
+  document.getElementById('clientPhone').value = client.phone || '';
+  document.getElementById('clientEmail').value = client.email || '';
+  document.getElementById('clientNotes').value = client.notes || '';
+  ['clientTotal','clientInstallments','clientFirstDue'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
+  document.getElementById('clientTotal').value = '';
+  document.getElementById('clientInstallments').value = 1;
+  const due = new Date(); due.setDate(due.getDate() + 7);
+  document.getElementById('clientFirstDue').value = isoDate(due);
+  document.getElementById('clientModalTitle').textContent = 'Nova compra — ' + client.name;
   clientModal.show();
 }
 
@@ -341,7 +367,22 @@ function saveClient(e, showToast) {
   const total = Number(document.getElementById('clientTotal').value);
   const count = Number(document.getElementById('clientInstallments').value);
   const firstDue = parseLocalDate(document.getElementById('clientFirstDue').value);
-  if (!payload.name || !total || total < 0 || !count || !firstDue) return;
+  if (!payload.name) return;
+  if (purchaseClientId) {
+    if (!Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
+    const targetId = purchaseClientId;
+    updateData(data => createInstallments(data, targetId, total, count, firstDue, new Map(), uid('buy')));
+    purchaseClientId = null;
+    clientModal.hide();
+    showToast('Nova compra registrada no cadastro do cliente.');
+    if (detailsModal) { detailsModal.hide(); setTimeout(() => openClientDetails(targetId, showToast), 150); }
+    return;
+  }
+  if (id) {
+    updateData(data => { const idx = data.clients.findIndex(c => c.id === id); if (idx >= 0) data.clients[idx] = { ...data.clients[idx], ...payload, updatedAt: new Date().toISOString() }; });
+    clientModal.hide(); showToast('Dados do cliente atualizados. As compras e parcelas foram preservadas.'); return;
+  }
+  if (!Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
 
   updateData(data => {
     let clientId = id;
@@ -355,17 +396,17 @@ function saveClient(e, showToast) {
     } else {
       clientId = uid('cli');
       data.clients.push({ id:clientId, ...payload, createdAt:new Date().toISOString() });
-      createInstallments(data, clientId, total, count, firstDue, new Map());
+      createInstallments(data, clientId, total, count, firstDue, new Map(), uid('buy'));
     }
   });
   clientModal.hide(); showToast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
 }
 
-function createInstallments(data, clientId, total, count, firstDue, paidMap) {
+function createInstallments(data, clientId, total, count, firstDue, paidMap = new Map(), purchaseId = null) {
   const base = Math.floor((total / count) * 100) / 100;
   for (let i=0;i<count;i++) {
     const n=i+1; const amount = n===count ? +(total-base*(count-1)).toFixed(2) : base;
-    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, createdAt:new Date().toISOString() });
+    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, ...(purchaseId ? { purchaseId } : {}), createdAt:new Date().toISOString() });
   }
 }
 
@@ -377,7 +418,7 @@ function openClientDetails(id, showToast = ()=>{}) {
   const openUpdated = ins.filter(i=>!i.paidAt).reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0);
   const additions = ins.filter(i=>!i.paidAt).reduce((sum,i)=>{const x=calculateLateAmounts(i,data.settings);return sum+x.interest+x.fee},0);
   document.getElementById('detailsClientName').textContent = client.name;
-  document.getElementById('clientDetailsBody').innerHTML = `<div class="row g-3 mb-4"><div class="col-6 col-lg"><div class="detail-stat"><small>Contrato</small><strong>${brl.format(contracted)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Já pago</small><strong>${brl.format(paid)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Acréscimos atuais</small><strong>${brl.format(additions)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Saldo atualizado</small><strong>${brl.format(openUpdated)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Parcelas</small><strong>${ins.filter(i=>i.paidAt).length}/${ins.length}</strong></div></div></div><div class="small text-secondary mb-3"><i class="bi bi-percent me-1"></i>Juros configurados: ${Number(data.settings.lateInterestMonthly ?? 20).toLocaleString('pt-BR')}% ao mês proporcional aos dias de atraso + multa de ${Number(data.settings.lateFeePercent ?? 2).toLocaleString('pt-BR')}%.</div><div class="d-flex flex-wrap gap-2 mb-4">${client.phone?`<a class="btn btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${normalizePhone(client.phone)}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>`:''}<button class="btn btn-outline-light" data-edit-client="${client.id}" data-bs-dismiss="modal"><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-outline-danger ms-md-auto" data-delete-client="${client.id}"><i class="bi bi-trash me-1"></i>Excluir</button></div><h3 class="h6 mb-3">Parcelas</h3><div class="installment-list">${ins.map(i=>installmentRow(i,data.settings,client.id)).join('') || '<div class="empty-state">Sem parcelas.</div>'}</div>${client.notes?`<div class="mt-4 p-3 rounded-3 border border-secondary-subtle"><small class="text-secondary d-block mb-1">Observações</small>${escapeHtml(client.notes)}</div>`:''}`;
+  document.getElementById('clientDetailsBody').innerHTML = `<div class="row g-3 mb-4"><div class="col-6 col-lg"><div class="detail-stat"><small>Contrato</small><strong>${brl.format(contracted)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Já pago</small><strong>${brl.format(paid)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Acréscimos atuais</small><strong>${brl.format(additions)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Saldo atualizado</small><strong>${brl.format(openUpdated)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Parcelas</small><strong>${ins.filter(i=>i.paidAt).length}/${ins.length}</strong></div></div></div><div class="small text-secondary mb-3"><i class="bi bi-percent me-1"></i>Juros configurados: ${Number(data.settings.lateInterestMonthly ?? 20).toLocaleString('pt-BR')}% ao mês proporcional aos dias de atraso + multa de ${Number(data.settings.lateFeePercent ?? 2).toLocaleString('pt-BR')}%.</div><div class="d-flex flex-wrap gap-2 mb-4">${client.phone?`<a class="btn btn-outline-success" target="_blank" rel="noopener" href="https://wa.me/${normalizePhone(client.phone)}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</a>`:''}<button class="btn btn-outline-light" data-edit-client="${client.id}" data-bs-dismiss="modal"><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-gold" data-new-purchase="${client.id}"><i class="bi bi-bag-plus me-1"></i>Nova compra</button><button class="btn btn-outline-danger ms-md-auto" data-delete-client="${client.id}"><i class="bi bi-trash me-1"></i>Excluir</button></div><h3 class="h6 mb-3">Parcelas</h3><div class="installment-list">${ins.map(i=>installmentRow(i,data.settings,client.id)).join('') || '<div class="empty-state">Sem parcelas.</div>'}</div>${client.notes?`<div class="mt-4 p-3 rounded-3 border border-secondary-subtle"><small class="text-secondary d-block mb-1">Observações</small>${escapeHtml(client.notes)}</div>`:''}`;
   detailsModal.show();
 }
 
@@ -418,7 +459,7 @@ function registerPayment(id,clientId,showToast){
   const chargeInterest=document.getElementById('paymentChargeInterest')?.checked ?? true;
   let remaining=amount,appliedTotal=0;
   updateData(data=>{
-    const list=data.installments.filter(x=>x.clientId===clientId&&!x.paidAt&&x.number>=selected.number).sort((a,b)=>a.number-b.number);
+    const list=data.installments.filter(x=>x.clientId===clientId&&x.purchaseId===selected.purchaseId&&!x.paidAt&&x.number>=selected.number).sort((a,b)=>a.number-b.number);
     for(const inst of list){
       if(remaining<=0.009)break;
       const cfg={...data.settings,chargeLateInterest:chargeInterest,chargeLateFee:chargeInterest};
@@ -434,7 +475,7 @@ function registerPayment(id,clientId,showToast){
       }
     }
     data.paymentHistory ||= [];
-    data.paymentHistory.push({id:uid('pay'),clientId,amount,applied:appliedTotal,unapplied:remaining,chargeInterest,createdAt:new Date().toISOString()});
+    data.paymentHistory.push({id:uid('pay'),clientId,purchaseId:selected.purchaseId || null,amount,applied:appliedTotal,unapplied:remaining,chargeInterest,createdAt:new Date().toISOString()});
   });
   document.getElementById('paymentEntryCard')?.remove();
   showToast(`Pagamento de ${brl.format(amount)} registrado.`);
