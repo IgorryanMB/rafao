@@ -66,7 +66,7 @@ function openClientModal(id = null) {
   const form = document.getElementById('clientForm');
   purchaseClientId = null;
   form.reset();
-  ['clientTotal','clientInstallments','clientFirstDue'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
+  ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
   document.getElementById('clientId').value = '';
   document.getElementById('clientInstallments').value = 1;
   const d = new Date(); d.setDate(d.getDate()+7);
@@ -84,7 +84,7 @@ function openClientModal(id = null) {
     document.getElementById('clientTotal').value = total.toFixed(2);
     document.getElementById('clientInstallments').value = ins.length || 1;
     document.getElementById('clientFirstDue').value = ins[0]?.dueDate || isoDate(d);
-    ['clientTotal','clientInstallments','clientFirstDue'].forEach(fieldId => { document.getElementById(fieldId).disabled = true; });
+    ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = true; });
   }
   clientModal.show();
 }
@@ -101,7 +101,8 @@ function openPurchaseModal(clientId) {
   document.getElementById('clientPhone').value = client.phone || '';
   document.getElementById('clientEmail').value = client.email || '';
   document.getElementById('clientNotes').value = client.notes || '';
-  ['clientTotal','clientInstallments','clientFirstDue'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
+  document.getElementById('clientPurchaseProduct').value = '';
+  ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
   document.getElementById('clientTotal').value = '';
   document.getElementById('clientInstallments').value = 1;
   const due = new Date(); due.setDate(due.getDate() + 7);
@@ -122,11 +123,12 @@ function saveClient(e, showToast) {
   const total = Number(document.getElementById('clientTotal').value);
   const count = Number(document.getElementById('clientInstallments').value);
   const firstDue = parseLocalDate(document.getElementById('clientFirstDue').value);
+  const purchaseName = document.getElementById('clientPurchaseProduct').value.trim();
   if (!payload.name) return;
   if (purchaseClientId) {
-    if (!Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
+    if (!purchaseName || !Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
     const targetId = purchaseClientId;
-    updateData(data => createInstallments(data, targetId, total, count, firstDue, new Map(), uid('buy')));
+    updateData(data => createInstallments(data, targetId, total, count, firstDue, new Map(), uid('buy'), purchaseName));
     purchaseClientId = null;
     clientModal.hide();
     showToast('Nova compra registrada no cadastro do cliente.');
@@ -137,7 +139,7 @@ function saveClient(e, showToast) {
     updateData(data => { const idx = data.clients.findIndex(c => c.id === id); if (idx >= 0) data.clients[idx] = { ...data.clients[idx], ...payload, updatedAt: new Date().toISOString() }; });
     clientModal.hide(); showToast('Dados do cliente atualizados. As compras e parcelas foram preservadas.'); return;
   }
-  if (!Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
+  if (!purchaseName || !Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
 
   updateData(data => {
     let clientId = id;
@@ -151,17 +153,17 @@ function saveClient(e, showToast) {
     } else {
       clientId = uid('cli');
       data.clients.push({ id:clientId, ...payload, createdAt:new Date().toISOString() });
-      createInstallments(data, clientId, total, count, firstDue, new Map(), uid('buy'));
+      createInstallments(data, clientId, total, count, firstDue, new Map(), uid('buy'), purchaseName);
     }
   });
   clientModal.hide(); showToast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
 }
 
-function createInstallments(data, clientId, total, count, firstDue, paidMap = new Map(), purchaseId = null) {
+function createInstallments(data, clientId, total, count, firstDue, paidMap = new Map(), purchaseId = null, purchaseName = '') {
   const base = Math.floor((total / count) * 100) / 100;
   for (let i=0;i<count;i++) {
     const n=i+1; const amount = n===count ? +(total-base*(count-1)).toFixed(2) : base;
-    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, ...(purchaseId ? { purchaseId } : {}), createdAt:new Date().toISOString() });
+    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, ...(purchaseId ? { purchaseId } : {}), ...(purchaseName ? { purchaseName } : {}), createdAt:new Date().toISOString() });
   }
 }
 
@@ -188,7 +190,8 @@ function renderPurchaseSections(installments, settings, clientId) {
   return groups.map((group, index) => {
     const total = group.items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const paid = group.items.filter(item => item.paidAt).length;
-    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div></div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
+    const productName = group.items.find(item => item.purchaseName)?.purchaseName || 'Produto não informado';
+    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div></div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
   }).join('') || '<div class="empty-state">Nenhuma compra registrada.</div>';
 }
 
