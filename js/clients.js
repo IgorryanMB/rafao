@@ -21,6 +21,10 @@ export function initClients(showToast) {
     if (del) deleteClient(del.dataset.deleteClient, showToast);
     const pay = e.target.closest('[data-toggle-payment]');
     if (pay) togglePayment(pay.dataset.togglePayment, pay.dataset.clientId, showToast);
+    const submitPayment = e.target.closest('[data-payment-submit]');
+    if (submitPayment) registerPayment(submitPayment.dataset.paymentSubmit, submitPayment.dataset.clientId, showToast);
+    const cancelPayment = e.target.closest('[data-payment-cancel]');
+    if (cancelPayment) document.getElementById('paymentEntryCard')?.remove();
     const whatsapp = e.target.closest('[data-whatsapp-client]');
     if (whatsapp) openWhatsApp(whatsapp.dataset.whatsappClient);
   });
@@ -149,13 +153,25 @@ function togglePayment(id,clientId,showToast){
     updateData(data=>{const i=data.installments.find(x=>x.id===id);if(i){i.paidAt=null;delete i.paidAmount;delete i.lateFeePaid;delete i.daysLatePaid;}});
     showToast('Pagamento desfeito.');openClientDetails(clientId,showToast);return;
   }
-  const initial=calculateLateAmounts(selected,snapshot.settings).total;
-  const raw=prompt(`Quanto o cliente está pagando agora?\nSaldo desta parcela: ${brl.format(initial)}\nO excedente será aplicado nas próximas parcelas em ordem.`,initial.toFixed(2).replace('.',','));
-  if(raw===null)return;
-  const amount=Number(raw.trim().replace(/\\./g,'').replace(',','.'));
-  if(!Number.isFinite(amount)||amount<=0){alert('Informe um valor maior que zero.');return;}
-  const chargeInterest=confirm('Calcular juros e multa nas parcelas vencidas?\n\nOK = sim\nCancelar = não');
-  let remaining=amount,appliedTotal=0,fullyPaid=0;
+  document.getElementById('paymentEntryCard')?.remove();
+  const due=calculateLateAmounts(selected,snapshot.settings).total;
+  const list=document.querySelector('#clientDetailsBody .installment-list');
+  if(!list)return;
+  list.insertAdjacentHTML('beforebegin',`<div class="payment-entry-card" id="paymentEntryCard">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3"><div><span class="panel-kicker">Novo recebimento</span><h3 class="h5 mt-1 mb-1">Parcela #${selected.number}</h3><div class="small text-secondary">Saldo atual: ${brl.format(due)}. O excedente pode abater as próximas parcelas.</div></div><button type="button" class="btn-close btn-close-white" aria-label="Fechar" data-payment-cancel></button></div>
+    <div class="row g-3 align-items-end"><div class="col-12 col-md-5"><label class="form-label" for="paymentAmount">Valor recebido (R$)</label><input id="paymentAmount" class="form-control form-control-dark" type="number" min="0.01" step="0.01" value="${due.toFixed(2)}" required></div>
+    <div class="col-12 col-md-4"><div class="form-check"><input class="form-check-input" id="paymentChargeInterest" type="checkbox" checked><label class="form-check-label small" for="paymentChargeInterest">Calcular juros e multa nas parcelas vencidas</label></div></div>
+    <div class="col-12 col-md-3 d-flex gap-2"><button class="btn btn-outline-light flex-fill" type="button" data-payment-cancel>Cancelar</button><button class="btn btn-gold flex-fill" type="button" data-payment-submit="${id}" data-client-id="${clientId}">Registrar</button></div></div></div>`);
+  document.getElementById('paymentAmount')?.focus();
+}
+function registerPayment(id,clientId,showToast){
+  const snapshot=getData(), selected=snapshot.installments.find(x=>x.id===id);
+  const field=document.getElementById('paymentAmount');
+  if(!selected||!field)return;
+  const amount=Number(field.value);
+  if(!Number.isFinite(amount)||amount<=0){field.classList.add('is-invalid');field.focus();return;}
+  const chargeInterest=document.getElementById('paymentChargeInterest')?.checked ?? true;
+  let remaining=amount,appliedTotal=0;
   updateData(data=>{
     const list=data.installments.filter(x=>x.clientId===clientId&&!x.paidAt&&x.number>=selected.number).sort((a,b)=>a.number-b.number);
     for(const inst of list){
@@ -163,20 +179,20 @@ function togglePayment(id,clientId,showToast){
       const cfg={...data.settings,chargeLateInterest:chargeInterest,chargeLateFee:chargeInterest};
       const due=calculateLateAmounts(inst,cfg).total;
       const applied=Math.min(remaining,due);
-      const wasPaid=Number(inst.paidAmount||0);
-      inst.paidAmount=+(wasPaid+applied).toFixed(2);
+      inst.paidAmount=+(Number(inst.paidAmount||0)+applied).toFixed(2);
       remaining=+(remaining-applied).toFixed(2);appliedTotal=+(appliedTotal+applied).toFixed(2);
       if(due-applied<=0.009){
         const finalCalc=calculateLateAmounts({...inst,paidAmount:0,paidAt:null},cfg);
         inst.paidAt=new Date().toISOString();
         inst.paidAmount=+(Number(inst.amount||0)+finalCalc.interest+finalCalc.fee).toFixed(2);
-        inst.lateFeePaid=finalCalc.fee;inst.daysLatePaid=finalCalc.daysLate;fullyPaid++;
+        inst.lateFeePaid=finalCalc.fee;inst.daysLatePaid=finalCalc.daysLate;
       }
     }
     data.paymentHistory ||= [];
     data.paymentHistory.push({id:uid('pay'),clientId,amount,applied:appliedTotal,unapplied:remaining,chargeInterest,createdAt:new Date().toISOString()});
   });
-  showToast(`Pagamento de ${brl.format(amount)} registrado; ${brl.format(appliedTotal)} aplicado em parcelas${remaining>0.009?`; excedente não aplicado: ${brl.format(remaining)}`:''}.`);
+  document.getElementById('paymentEntryCard')?.remove();
+  showToast(`Pagamento de ${brl.format(amount)} registrado.`);
   openClientDetails(clientId,showToast);
 }
 function deleteClient(id,showToast){const data=getData();const c=data.clients.find(x=>x.id===id);if(!c)return;if(!confirm(`Excluir ${c.name} e todas as parcelas?`))return;updateData(d=>{d.clients=d.clients.filter(x=>x.id!==id);d.installments=d.installments.filter(x=>x.clientId!==id)});detailsModal?.hide();showToast('Cliente excluído.');}
