@@ -1,4 +1,4 @@
-import { brl, calculateLateAmounts, installmentStatus, shortDate, parseLocalDate } from './utils.js';
+import { brl, calculateLateAmounts, escapeHtml, installmentStatus, shortDate, parseLocalDate } from './utils.js';
 import { getData } from './storage.js';
 
 let chart;
@@ -26,12 +26,24 @@ export function renderDashboard() {
   ];
   document.getElementById('kpiCards').innerHTML = cards.map(c => `<div class="col-6 col-xl-3"><div class="kpi-card"><div class="kpi-icon"><i class="bi ${c[0]}"></i></div><div class="kpi-label mt-3">${c[1]}</div><div class="kpi-value">${c[2]}</div><div class="kpi-foot">${c[3]}</div></div></div>`).join('');
 
-  const upcoming = m.open.slice().sort((a,b) => a.dueDate.localeCompare(b.dueDate)).slice(0,7);
+  const clientBalances = new Map();
+  for (const inst of m.open) {
+    if (!clientBalances.has(inst.clientId)) clientBalances.set(inst.clientId, []);
+    clientBalances.get(inst.clientId).push(inst);
+  }
+  const upcoming = [...clientBalances.entries()].map(([clientId, installments]) => ({
+    clientId,
+    installments: installments.sort((a,b) => a.dueDate.localeCompare(b.dueDate)),
+    balance: installments.reduce((sum, item) => sum + calculateLateAmounts(item, data.settings).total, 0)
+  })).sort((a,b) => a.installments[0].dueDate.localeCompare(b.installments[0].dueDate)).slice(0,7);
   const tbody = document.getElementById('upcomingTable');
-  tbody.innerHTML = upcoming.length ? upcoming.map(inst => {
-    const client = data.clients.find(c => c.id === inst.clientId);
-    const status = installmentStatus(inst, data.settings.dueSoonDays);
-    return `<tr><td><strong>${client?.name || 'Cliente removido'}</strong></td><td>${inst.number}</td><td>${shortDate.format(parseLocalDate(inst.dueDate))}</td><td>${brl.format(calculateLateAmounts(inst,data.settings).total)}</td><td><span class="status-pill status-${status.key}">${status.label}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-light" data-open-client="${inst.clientId}">Abrir</button></td></tr>`;
+  tbody.innerHTML = upcoming.length ? upcoming.map(item => {
+    const client = data.clients.find(c => c.id === item.clientId);
+    const first = item.installments[0];
+    const status = item.installments.some(i => installmentStatus(i, data.settings.dueSoonDays).key === 'overdue') ? { key: 'overdue', label: 'Em atraso' } : installmentStatus(first, data.settings.dueSoonDays);
+    const names = [...new Set(item.installments.map(i => i.purchaseName).filter(Boolean))];
+    const label = names.length ? names.map(escapeHtml).join(', ') : item.installments.length + ' parcela(s)';
+    return `<tr><td><strong>${escapeHtml(client?.name || 'Cliente removido')}</strong></td><td>${label}</td><td>${shortDate.format(parseLocalDate(first.dueDate))}</td><td>${brl.format(item.balance)}</td><td><span class="status-pill status-${status.key}">${status.label}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-light" data-open-client="${item.clientId}">Selecionar venda</button></td></tr>`;
   }).join('') : `<tr><td colspan="6"><div class="empty-state"><i class="bi bi-check-circle"></i>Nenhuma cobrança pendente.</div></td></tr>`;
 
   const payments = (data.paymentHistory || []).slice().sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
