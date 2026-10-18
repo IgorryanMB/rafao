@@ -190,8 +190,9 @@ function renderPurchaseSections(installments, settings, clientId) {
   return groups.map((group, index) => {
     const total = group.items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const paid = group.items.filter(item => item.paidAt).length;
+    const firstOpen = group.items.find(item => !item.paidAt);
     const productName = group.items.find(item => item.purchaseName)?.purchaseName || 'Produto não informado';
-    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div></div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
+    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div>' + (firstOpen ? '<button class="btn btn-sm btn-outline-success" data-toggle-payment="' + firstOpen.id + '" data-client-id="' + clientId + '"><i class="bi bi-cash-coin me-1"></i>Abater valor desta venda</button>' : '<span class="small text-success"><i class="bi bi-check-circle me-1"></i>Venda quitada</span>') + '</div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
   }).join('') || '<div class="empty-state">Nenhuma compra registrada.</div>';
 }
 
