@@ -9,9 +9,10 @@ export function getMetrics(data = getData()) {
   const overdue = open.filter(i => installmentStatus(i, data.settings.dueSoonDays).key === 'overdue');
   const soon = open.filter(i => ['soon'].includes(installmentStatus(i, data.settings.dueSoonDays).key));
   const low = data.products.filter(p => p.qty <= p.minStock);
-  const received = paid.reduce((sum, i) => sum + Number(i.paidAmount ?? i.amount ?? 0), 0);
+  const received = data.installments.reduce((sum, i) => sum + Number(i.paidAmount || (i.paidAt ? i.amount : 0)), 0);
+  const partial = data.installments.filter(i => !i.paidAt && Number(i.paidAmount || 0) > 0);
   const receivable = open.reduce((sum, i) => sum + calculateLateAmounts(i, data.settings).total, 0);
-  return { open, paid, overdue, soon, low, received, receivable };
+  return { open, paid, partial, overdue, soon, low, received, receivable };
 }
 
 export function renderDashboard() {
@@ -19,7 +20,7 @@ export function renderDashboard() {
   const m = getMetrics(data);
   const cards = [
     ['bi-cash-stack', 'A receber', brl.format(m.receivable), `${m.open.length} parcela(s) em aberto`],
-    ['bi-check2-circle', 'Já recebido', brl.format(m.received), `${m.paid.length} parcela(s) pagas`],
+    ['bi-check2-circle', 'Já recebido', brl.format(m.received), `${m.paid.length} quitadas · ${m.partial.length} parciais`],
     ['bi-alarm', 'Vencendo / atrasadas', String(m.soon.length + m.overdue.length), `${m.overdue.length} em atraso`],
     ['bi-box-seam', 'Estoque baixo', String(m.low.length), `${data.products.length} produto(s) cadastrados`]
   ];
@@ -33,7 +34,12 @@ export function renderDashboard() {
     return `<tr><td><strong>${client?.name || 'Cliente removido'}</strong></td><td>${inst.number}</td><td>${shortDate.format(parseLocalDate(inst.dueDate))}</td><td>${brl.format(calculateLateAmounts(inst,data.settings).total)}</td><td><span class="status-pill status-${status.key}">${status.label}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-light" data-open-client="${inst.clientId}">Abrir</button></td></tr>`;
   }).join('') : `<tr><td colspan="6"><div class="empty-state"><i class="bi bi-check-circle"></i>Nenhuma cobrança pendente.</div></td></tr>`;
 
-  document.getElementById('lowStockList').innerHTML = m.low.length ? m.low.slice(0,6).map(p => `<div class="stack-item"><div><div class="stack-item-title">${p.name}</div><div class="stack-item-meta">Mínimo ${p.minStock} un.</div></div><span class="stack-badge">${p.qty} un.</span></div>`).join('') : `<div class="empty-state"><i class="bi bi-box2-heart"></i>Estoque saudável.</div>`;
+  const payments = (data.paymentHistory || []).slice().sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
+  document.getElementById('lowStockList').innerHTML = payments.length ? payments.map(p => {
+    const client = data.clients.find(c => c.id === p.clientId);
+    const date = p.createdAt ? shortDate.format(new Date(p.createdAt)) : 'Data indisponível';
+    return `<div class="stack-item"><div><div class="stack-item-title">${client?.name || 'Cliente removido'}</div><div class="stack-item-meta">${date} · ${brl.format(Number(p.applied ?? p.amount ?? 0))} aplicado</div></div><span class="stack-badge">${brl.format(Number(p.amount || 0))}</span></div>`;
+  }).join('') : `<div class="empty-state"><i class="bi bi-cash-coin"></i>Nenhum pagamento registrado ainda.</div>`;
 
   document.getElementById('summaryList').innerHTML = `
     <div class="summary-row"><span>Clientes ativos</span><strong>${data.clients.length}</strong></div>
@@ -55,7 +61,7 @@ function renderChart(data) {
     labels.push(d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''));
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     const subset = data.installments.filter(x => x.dueDate.startsWith(ym));
-    paidData.push(subset.filter(x=>x.paidAt).reduce((s,x)=>s+Number(x.paidAmount ?? x.amount ?? 0),0));
+    paidData.push(subset.reduce((s,x)=>s+Number(x.paidAmount || (x.paidAt ? x.amount : 0)),0));
     openData.push(subset.filter(x=>!x.paidAt).reduce((s,x)=>s+calculateLateAmounts(x,data.settings).total,0));
   }
   const ctx = document.getElementById('receivablesChart');
