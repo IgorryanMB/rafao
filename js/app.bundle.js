@@ -195,7 +195,7 @@ function renderDashboard() {
   const m = getMetrics(data);
   const cards = [
     ['bi-cash-stack', 'A receber', brl.format(m.receivable), `${m.open.length} parcela(s) em aberto`],
-    ['bi-check2-circle', 'Já recebido', brl.format(m.received), `${m.paid.length} quitadas · ${m.partial.length} parciais`],
+    ['bi-check2-circle', 'Já recebido', brl.format(m.received), `${m.paid.length} quitadas · ${brl.format(m.partial.reduce((sum,i)=>sum+Number(i.paidAmount||0),0))} em parciais`],
     ['bi-alarm', 'Vencendo / atrasadas', String(m.soon.length + m.overdue.length), `${m.overdue.length} em atraso`],
     ['bi-box-seam', 'Estoque baixo', String(m.low.length), `${data.products.length} produto(s) cadastrados`]
   ];
