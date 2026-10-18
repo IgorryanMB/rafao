@@ -48,7 +48,7 @@ export function renderClients() {
 function clientCard(client, ins, dueDays) {
   const data = getData();
   const total = ins.reduce((sum,i)=>sum+Number(i.amount||0),0);
-  const paid = ins.filter(i=>i.paidAt).reduce((sum,i)=>sum+Number(i.paidAmount ?? i.amount ?? 0),0);
+  const paid = ins.reduce((sum,i)=>sum+Number(i.paidAmount || (i.paidAt ? i.amount : 0)),0);
   const open = ins.filter(i=>!i.paidAt).reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0);
   const paidCount = ins.filter(i=>i.paidAt).length;
   const progress = ins.length ? Math.round((paidCount/ins.length)*100) : 0;
