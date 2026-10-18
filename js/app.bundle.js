@@ -43,27 +43,24 @@ function daysUntil(dateStr) {
 
 
 function calculateLateAmounts(inst, settings = {}) {
-  const principal = Number(inst.amount || 0);
-  if (inst.paidAt && Number.isFinite(Number(inst.paidAmount))) {
-    const total = Number(inst.paidAmount);
-    return { principal, daysLate: Number(inst.daysLatePaid || 0), interest: Math.max(0, total - principal - Number(inst.lateFeePaid || 0)), fee: Number(inst.lateFeePaid || 0), total };
+  const original = Math.max(0, Number(inst.amount || 0));
+  const paid = Math.max(0, Number(inst.paidAmount || 0));
+  const principal = Math.max(0, original - paid);
+  if (inst.paidAt) {
+    const total = Number(inst.paidAmount ?? inst.amount ?? 0);
+    return { principal: 0, original, paid: total, daysLate: Number(inst.daysLatePaid || 0), interest: Math.max(0, total - original - Number(inst.lateFeePaid || 0)), fee: Number(inst.lateFeePaid || 0), total: 0 };
   }
   const days = Math.max(0, -daysUntil(inst.dueDate));
-  if (!days) return { principal, daysLate: 0, interest: 0, fee: 0, total: principal };
+  if (!days || principal <= 0) return { principal, original, paid, daysLate: 0, interest: 0, fee: 0, total: principal };
   const monthlyRate = Math.max(0, Number(settings.lateInterestMonthly ?? 20)) / 100;
   const feeRate = Math.max(0, Number(settings.lateFeePercent ?? 2)) / 100;
-  const interest = principal * monthlyRate * (days / 30);
-  const fee = principal * feeRate;
+  const chargeInterest = settings.chargeLateInterest !== false;
+  const chargeFee = settings.chargeLateFee !== false;
+  const interest = chargeInterest ? principal * monthlyRate * (days / 30) : 0;
+  const fee = chargeFee ? principal * feeRate : 0;
   const total = principal + interest + fee;
-  return {
-    principal,
-    daysLate: days,
-    interest: +interest.toFixed(2),
-    fee: +fee.toFixed(2),
-    total: +total.toFixed(2)
-  };
+  return { principal, original, paid, daysLate: days, interest: +interest.toFixed(2), fee: +fee.toFixed(2), total: +total.toFixed(2) };
 }
-
 function installmentStatus(inst, dueSoonDays = 5) {
   if (inst.paidAt) return { key: 'paid', label: 'Pago' };
   const days = daysUntil(inst.dueDate);
@@ -376,21 +373,50 @@ function openClientDetails(id, showToast = ()=>{}) {
 
 function installmentRow(i,settings,clientId){
   const s=installmentStatus(i,settings.dueSoonDays); const calc=calculateLateAmounts(i,settings);
+  const paid=Number(i.paidAmount||0);
   const valueHtml = i.paidAt
-    ? `<div><strong>${brl.format(Number(i.paidAmount ?? i.amount))}</strong>${Number(i.paidAmount ?? i.amount)>Number(i.amount)?`<div class="small text-secondary">Original ${brl.format(i.amount)}</div>`:''}</div>`
-    : calc.daysLate>0
-      ? `<div><strong>${brl.format(calc.total)}</strong><div class="small text-warning">+ ${brl.format(calc.interest+calc.fee)} de acréscimos</div></div>`
-      : `<strong>${brl.format(i.amount)}</strong>`;
-  return `<div class="installment-row"><strong>#${i.number}</strong><span>${shortDate.format(parseLocalDate(i.dueDate))}</span><span>${valueHtml}</span><span><span class="status-pill status-${s.key}">${s.label}</span></span><button class="btn btn-sm ${i.paidAt?'btn-outline-secondary':'btn-outline-success'}" data-toggle-payment="${i.id}" data-client-id="${clientId}">${i.paidAt?'<i class="bi bi-arrow-counterclockwise me-1"></i>Desfazer':'<i class="bi bi-check2 me-1"></i>Marcar paga'}</button></div>`
+    ? `<div><strong>${brl.format(paid||i.amount)}</strong><div class="small text-success">Quitada</div></div>`
+    : `<div><strong>${brl.format(calc.total)}</strong>${paid>0?`<div class="small text-info">Pago parcial: ${brl.format(paid)}</div>`:''}${calc.daysLate>0?`<div class="small text-warning">+ ${brl.format(calc.interest+calc.fee)} de acréscimos</div>`:''}</div>`;
+  return `<div class="installment-row"><strong>#${i.number}</strong><span>${shortDate.format(parseLocalDate(i.dueDate))}</span><span>${valueHtml}</span><span><span class="status-pill status-${s.key}">${s.label}</span></span><button class="btn btn-sm ${i.paidAt?'btn-outline-secondary':'btn-outline-success'}" data-toggle-payment="${i.id}" data-client-id="${clientId}">${i.paidAt?'<i class="bi bi-arrow-counterclockwise me-1"></i>Desfazer':'<i class="bi bi-cash-coin me-1"></i>Registrar pagamento'}</button></div>`
 }
 
 function togglePayment(id,clientId,showToast){
+  const snapshot=getData(), selected=snapshot.installments.find(x=>x.id===id);
+  if(!selected)return;
+  if(selected.paidAt){
+    if(!confirm('Desfazer o pagamento desta parcela?'))return;
+    updateData(data=>{const i=data.installments.find(x=>x.id===id);if(i){i.paidAt=null;delete i.paidAmount;delete i.lateFeePaid;delete i.daysLatePaid;}});
+    showToast('Pagamento desfeito.');openClientDetails(clientId,showToast);return;
+  }
+  const initial=calculateLateAmounts(selected,snapshot.settings).total;
+  const raw=prompt(`Quanto o cliente está pagando agora?\nSaldo desta parcela: ${brl.format(initial)}\nO excedente será aplicado nas próximas parcelas em ordem.`,initial.toFixed(2).replace('.',','));
+  if(raw===null)return;
+  const amount=Number(raw.trim().replace(/\\./g,'').replace(',','.'));
+  if(!Number.isFinite(amount)||amount<=0){alert('Informe um valor maior que zero.');return;}
+  const chargeInterest=confirm('Calcular juros e multa nas parcelas vencidas?\n\nOK = sim\nCancelar = não');
+  let remaining=amount,appliedTotal=0,fullyPaid=0;
   updateData(data=>{
-    const i=data.installments.find(x=>x.id===id); if(!i)return;
-    if(i.paidAt){ i.paidAt=null; delete i.paidAmount; delete i.lateFeePaid; delete i.daysLatePaid; }
-    else { const calc=calculateLateAmounts(i,data.settings); i.paidAt=new Date().toISOString(); i.paidAmount=calc.total; i.lateFeePaid=calc.fee; i.daysLatePaid=calc.daysLate; }
+    const list=data.installments.filter(x=>x.clientId===clientId&&!x.paidAt&&x.number>=selected.number).sort((a,b)=>a.number-b.number);
+    for(const inst of list){
+      if(remaining<=0.009)break;
+      const cfg={...data.settings,chargeLateInterest:chargeInterest,chargeLateFee:chargeInterest};
+      const due=calculateLateAmounts(inst,cfg).total;
+      const applied=Math.min(remaining,due);
+      const wasPaid=Number(inst.paidAmount||0);
+      inst.paidAmount=+(wasPaid+applied).toFixed(2);
+      remaining=+(remaining-applied).toFixed(2);appliedTotal=+(appliedTotal+applied).toFixed(2);
+      if(due-applied<=0.009){
+        const finalCalc=calculateLateAmounts({...inst,paidAmount:0,paidAt:null},cfg);
+        inst.paidAt=new Date().toISOString();
+        inst.paidAmount=+(Number(inst.amount||0)+finalCalc.interest+finalCalc.fee).toFixed(2);
+        inst.lateFeePaid=finalCalc.fee;inst.daysLatePaid=finalCalc.daysLate;fullyPaid++;
+      }
+    }
+    data.paymentHistory ||= [];
+    data.paymentHistory.push({id:uid('pay'),clientId,amount,applied:appliedTotal,unapplied:remaining,chargeInterest,createdAt:new Date().toISOString()});
   });
-  showToast('Pagamento atualizado.'); openClientDetails(clientId,showToast)
+  showToast(`Pagamento de ${brl.format(amount)} registrado; ${brl.format(appliedTotal)} aplicado em parcelas${remaining>0.009?`; excedente não aplicado: ${brl.format(remaining)}`:''}.`);
+  openClientDetails(clientId,showToast);
 }
 function deleteClient(id,showToast){const data=getData();const c=data.clients.find(x=>x.id===id);if(!c)return;if(!confirm(`Excluir ${c.name} e todas as parcelas?`))return;updateData(d=>{d.clients=d.clients.filter(x=>x.id!==id);d.installments=d.installments.filter(x=>x.clientId!==id)});detailsModal?.hide();showToast('Cliente excluído.');}
 function openWhatsApp(id){

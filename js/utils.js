@@ -37,27 +37,24 @@ export function daysUntil(dateStr) {
 
 
 export function calculateLateAmounts(inst, settings = {}) {
-  const principal = Number(inst.amount || 0);
-  if (inst.paidAt && Number.isFinite(Number(inst.paidAmount))) {
-    const total = Number(inst.paidAmount);
-    return { principal, daysLate: Number(inst.daysLatePaid || 0), interest: Math.max(0, total - principal - Number(inst.lateFeePaid || 0)), fee: Number(inst.lateFeePaid || 0), total };
+  const original = Math.max(0, Number(inst.amount || 0));
+  const paid = Math.max(0, Number(inst.paidAmount || 0));
+  const principal = Math.max(0, original - paid);
+  if (inst.paidAt) {
+    const total = Number(inst.paidAmount ?? inst.amount ?? 0);
+    return { principal: 0, original, paid: total, daysLate: Number(inst.daysLatePaid || 0), interest: Math.max(0, total - original - Number(inst.lateFeePaid || 0)), fee: Number(inst.lateFeePaid || 0), total: 0 };
   }
   const days = Math.max(0, -daysUntil(inst.dueDate));
-  if (!days) return { principal, daysLate: 0, interest: 0, fee: 0, total: principal };
+  if (!days || principal <= 0) return { principal, original, paid, daysLate: 0, interest: 0, fee: 0, total: principal };
   const monthlyRate = Math.max(0, Number(settings.lateInterestMonthly ?? 20)) / 100;
   const feeRate = Math.max(0, Number(settings.lateFeePercent ?? 2)) / 100;
-  const interest = principal * monthlyRate * (days / 30);
-  const fee = principal * feeRate;
+  const chargeInterest = settings.chargeLateInterest !== false;
+  const chargeFee = settings.chargeLateFee !== false;
+  const interest = chargeInterest ? principal * monthlyRate * (days / 30) : 0;
+  const fee = chargeFee ? principal * feeRate : 0;
   const total = principal + interest + fee;
-  return {
-    principal,
-    daysLate: days,
-    interest: +interest.toFixed(2),
-    fee: +fee.toFixed(2),
-    total: +total.toFixed(2)
-  };
+  return { principal, original, paid, daysLate: days, interest: +interest.toFixed(2), fee: +fee.toFixed(2), total: +total.toFixed(2) };
 }
-
 export function installmentStatus(inst, dueSoonDays = 5) {
   if (inst.paidAt) return { key: 'paid', label: 'Pago' };
   const days = daysUntil(inst.dueDate);
