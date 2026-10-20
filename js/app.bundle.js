@@ -221,7 +221,7 @@ function renderDashboard() {
     return `<tr><td><strong>${escapeHtml(client?.name || 'Cliente removido')}</strong></td><td>${label}</td><td>${shortDate.format(parseLocalDate(first.dueDate))}</td><td>${brl.format(item.balance)}</td><td><span class="status-pill status-${status.key}">${status.label}</span></td><td class="text-end"><button class="btn btn-sm btn-outline-light" data-open-client="${item.clientId}">Selecionar venda</button></td></tr>`;
   }).join('') : `<tr><td colspan="6"><div class="empty-state"><i class="bi bi-check-circle"></i>Nenhuma cobrança pendente.</div></td></tr>`;
 
-  const payments = (data.paymentHistory || []).slice().sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
+  const payments = (data.paymentHistory || []).filter(p => !p.reversedAt).slice().sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,6);
   document.getElementById('lowStockList').innerHTML = payments.length ? payments.map(p => {
     const client = data.clients.find(c => c.id === p.clientId);
     const date = p.createdAt ? shortDate.format(new Date(p.createdAt)) : 'Data indisponível';
