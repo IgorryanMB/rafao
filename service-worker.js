@@ -1,8 +1,8 @@
-const CACHE='jv-perfumes-v3';
-const ASSETS=['./','./index.html','./assets/css/styles.css','./assets/img/logo.png','./assets/img/icon-192.png','./assets/img/icon-512.png','./js/app.js','./js/storage.js','./js/utils.js','./js/dashboard.js','./js/clients.js','./js/inventory.js','./js/notifications.js'];
+const CACHE='jv-perfumes-v4';
+const ASSETS=['./','./index.html','./assets/css/styles.css','./assets/img/logo.png','./assets/img/icon-192.png','./assets/img/icon-512.png','./js/app.bundle.js','./js/pro.js','./js/app.js','./js/storage.js','./js/utils.js','./js/dashboard.js','./js/clients.js','./js/inventory.js','./js/notifications.js'];
 const DB='jv-perfumes-worker'; const STORE='alerts';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));self.skipWaiting()});
-self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim())});
+self.addEventListener('activate',e=>{e.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('jv-perfumes-v')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim();})())});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request).then(r=>r||caches.match('./index.html'))))});
 self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(list=>{for(const c of list){if('focus'in c)return c.focus()}return self.clients.openWindow('./')}))});
 self.addEventListener('message',e=>{if(e.data?.type==='SYNC_ALERTS')e.waitUntil(saveAlerts(e.data.alerts||[]))});
