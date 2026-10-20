@@ -39,3 +39,32 @@ body{margin:0;background:radial-gradient(circle at 85% 10%,rgba(216,169,74,.08),
 @media(max-width:575.98px){.page-heading{flex-direction:column}.page-heading>.btn{width:100%}.panel{padding:15px}.kpi-value{font-size:1.4rem}.client-actions{flex-wrap:wrap}.client-actions .btn{min-width:calc(50% - 4px)}.installment-row{grid-template-columns:1fr}.installment-row>*:last-child{grid-column:auto}}
 
 .payment-entry-card{margin:0 0 18px;padding:18px;border:1px solid rgba(216,169,74,.38);border-radius:16px;background:linear-gradient(135deg,rgba(216,169,74,.09),rgba(255,255,255,.02))}.payment-entry-card .form-check{padding:10px 12px;border:1px solid var(--line);border-radius:10px;min-height:42px}.payment-entry-card .form-check-input{background-color:#0b1826;border-color:rgba(255,255,255,.3)}.payment-entry-card .form-check-input:checked{background-color:var(--gold);border-color:var(--gold)}
+
+/* Recursos financeiros e comprovantes */
+.pro-search{max-width:320px}
+.pro-receipt{background:#fff;color:#1a2430;padding:24px;border-radius:12px}
+.pro-receipt-brand{font-size:1.25rem;font-weight:900;letter-spacing:.14em;color:#805710}
+.pro-receipt-line{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:11px 0;border-bottom:1px solid #d9dde3;font-size:.9rem;overflow-wrap:anywhere}
+.pro-receipt-line span{color:#586372;flex-shrink:0}
+.pro-receipt-line strong{text-align:right;font-weight:650}
+.pro-receipt-total{display:flex;justify-content:space-between;align-items:center;margin-top:18px;padding:15px;background:#f6ebd2;border-radius:8px;color:#5b3a06;font-size:1rem}
+.pro-receipt-total strong{font-size:1.45rem}
+#page-reports .kpi-value{overflow-wrap:anywhere}
+@media(max-width:575.98px){.pro-search{max-width:none;width:100%}.pro-receipt{padding:14px}.pro-receipt-line{font-size:.82rem}}
+@media print{
+  body.pro-print-receipt,body.pro-print-report{background:#fff!important;color:#111!important}
+  body.pro-print-receipt *{visibility:hidden!important}
+  body.pro-print-receipt #receiptPrintSection,body.pro-print-receipt #receiptPrintSection *{visibility:visible!important}
+  body.pro-print-receipt #receiptPrintSection{position:fixed;top:0;left:0;width:100%;padding:18mm;z-index:9999}
+  body.pro-print-receipt .pro-receipt{box-shadow:none;border:1px solid #aaa;padding:20px}
+  body.pro-print-report .sidebar,body.pro-print-report .mobile-header,body.pro-print-report .offcanvas,
+  body.pro-print-report .toast-container,body.pro-print-report .page-heading button,
+  body.pro-print-report #reportPrintBtn{display:none!important}
+  body.pro-print-report .main-content{margin:0!important}
+  body.pro-print-report .content-wrap{max-width:none!important;padding:0!important}
+  body.pro-print-report .app-page:not(#page-reports){display:none!important}
+  body.pro-print-report #page-reports,body.pro-print-report #page-reports *{color:#111!important}
+  body.pro-print-report #page-reports .panel,body.pro-print-report #page-reports .kpi-card,
+  body.pro-print-report #page-reports .stack-item{background:#fff!important;border-color:#ccc!important;box-shadow:none!important}
+  body.pro-print-report #page-reports .kpi-card{break-inside:avoid}
+}
