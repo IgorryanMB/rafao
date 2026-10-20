@@ -34,11 +34,11 @@ export function initClients(showToast) {
 
 export function renderClients() {
   const data = getData();
-  const query = document.getElementById('clientSearch')?.value.trim().toLowerCase() || '';
+  const query = foldSearch(document.getElementById('clientSearch')?.value.trim() || '');
   const filter = document.getElementById('clientStatusFilter')?.value || 'all';
   let clients = data.clients.map(c => ({ c, ins: data.installments.filter(i => i.clientId === c.id) }));
   clients = clients.filter(({c,ins}) => {
-    const text = `${c.name} ${c.phone} ${c.email}`.toLowerCase();
+    const text = foldSearch(`${c.name} ${c.phone} ${c.email} ${ins.map(i => i.purchaseName || '').join(' ')}`);
     if (query && !text.includes(query)) return false;
     const open = ins.filter(i=>!i.paidAt);
     const overdue = open.some(i=>installmentStatus(i,data.settings.dueSoonDays).key==='overdue');
@@ -51,6 +51,7 @@ export function renderClients() {
   document.getElementById('clientsGrid').innerHTML = clients.length ? clients.map(({c,ins}) => clientCard(c,ins,data.settings.dueSoonDays)).join('') : `<div class="col-12"><div class="panel empty-state"><i class="bi bi-people"></i>Nenhum cliente encontrado.</div></div>`;
 }
 
+function foldSearch(value) { return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
 function clientCard(client, ins, dueDays) {
   const data = getData();
   const total = ins.reduce((sum,i)=>sum+Number(i.amount||0),0);
@@ -65,6 +66,7 @@ function clientCard(client, ins, dueDays) {
 function openClientModal(id = null) {
   const form = document.getElementById('clientForm');
   purchaseClientId = null;
+  resetSaleStockControls();
   form.reset();
   ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
   document.getElementById('clientId').value = '';
@@ -86,6 +88,8 @@ function openClientModal(id = null) {
     document.getElementById('clientFirstDue').value = ins[0]?.dueDate || isoDate(d);
     ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = true; });
   }
+  document.getElementById('clientStockProduct').disabled = Boolean(id);
+  document.getElementById('clientStockQty').disabled = Boolean(id);
   clientModal.show();
 }
 
@@ -94,6 +98,7 @@ function openPurchaseModal(clientId) {
   const client = data.clients.find(c => c.id === clientId);
   if (!client) return;
   purchaseClientId = clientId;
+  resetSaleStockControls();
   const form = document.getElementById('clientForm');
   form.reset();
   document.getElementById('clientId').value = '';
@@ -108,9 +113,34 @@ function openPurchaseModal(clientId) {
   const due = new Date(); due.setDate(due.getDate() + 7);
   document.getElementById('clientFirstDue').value = isoDate(due);
   document.getElementById('clientModalTitle').textContent = 'Nova compra — ' + client.name;
+  document.getElementById('clientStockProduct').disabled = false;
+  document.getElementById('clientStockQty').disabled = false;
   clientModal.show();
 }
 
+function resetSaleStockControls() {
+  const select = document.getElementById('clientStockProduct');
+  const qty = document.getElementById('clientStockQty');
+  if (select) select.value = '';
+  if (qty) qty.value = '1';
+}
+function readStockSale(showToast) {
+  const productId = document.getElementById('clientStockProduct')?.value || '';
+  if (!productId) return null;
+  const qty = Number(document.getElementById('clientStockQty')?.value);
+  const p = getData().products.find(item => item.id === productId);
+  if (!p || !Number.isInteger(qty) || qty < 1) { showToast('Escolha um produto e uma quantidade válida.'); return false; }
+  if (Number(p.qty || 0) < qty) { showToast('Estoque insuficiente para esta venda.'); return false; }
+  return { productId, qty, costTotal: +(Number(p.cost || 0) * qty).toFixed(2), productName: p.name };
+}
+function applyStockSale(data, sale, clientId, purchaseId) {
+  if (!sale) return;
+  const p = data.products.find(item => item.id === sale.productId);
+  if (!p || Number(p.qty || 0) < sale.qty) throw new Error('Estoque insuficiente.');
+  p.qty = Number(p.qty || 0) - sale.qty;
+  data.movements ||= [];
+  data.movements.push({ id: uid('mov'), productId: p.id, type: 'out', qty: sale.qty, note: 'Venda: ' + sale.productName, clientId, purchaseId, createdAt: new Date().toISOString() });
+}
 function saveClient(e, showToast) {
   e.preventDefault();
   const id = document.getElementById('clientId').value;
@@ -124,11 +154,14 @@ function saveClient(e, showToast) {
   const count = Number(document.getElementById('clientInstallments').value);
   const firstDue = parseLocalDate(document.getElementById('clientFirstDue').value);
   const purchaseName = document.getElementById('clientPurchaseProduct').value.trim();
+  const stockSale = id ? null : readStockSale(showToast);
+  if (stockSale === false) return;
+  const stockMeta = stockSale ? { stockProductId: stockSale.productId, stockQty: stockSale.qty, saleCostTotal: stockSale.costTotal } : null;
   if (!payload.name) return;
   if (purchaseClientId) {
     if (!purchaseName || !Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) return;
     const targetId = purchaseClientId;
-    updateData(data => createInstallments(data, targetId, total, count, firstDue, new Map(), uid('buy'), purchaseName));
+    updateData(data => { const purchaseId = uid('buy'); createInstallments(data, targetId, total, count, firstDue, new Map(), purchaseId, purchaseName, stockMeta); applyStockSale(data, stockSale, targetId, purchaseId); });
     purchaseClientId = null;
     clientModal.hide();
     showToast('Nova compra registrada no cadastro do cliente.');
@@ -153,17 +186,19 @@ function saveClient(e, showToast) {
     } else {
       clientId = uid('cli');
       data.clients.push({ id:clientId, ...payload, createdAt:new Date().toISOString() });
-      createInstallments(data, clientId, total, count, firstDue, new Map(), uid('buy'), purchaseName);
+      const purchaseId = uid('buy');
+      createInstallments(data, clientId, total, count, firstDue, new Map(), purchaseId, purchaseName, stockMeta);
+      applyStockSale(data, stockSale, clientId, purchaseId);
     }
   });
   clientModal.hide(); showToast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
 }
 
-function createInstallments(data, clientId, total, count, firstDue, paidMap = new Map(), purchaseId = null, purchaseName = '') {
+function createInstallments(data, clientId, total, count, firstDue, paidMap = new Map(), purchaseId = null, purchaseName = '', stockMeta = null) {
   const base = Math.floor((total / count) * 100) / 100;
   for (let i=0;i<count;i++) {
     const n=i+1; const amount = n===count ? +(total-base*(count-1)).toFixed(2) : base;
-    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, ...(purchaseId ? { purchaseId } : {}), ...(purchaseName ? { purchaseName } : {}), createdAt:new Date().toISOString() });
+    data.installments.push({ id:uid('par'), clientId, number:n, amount, dueDate:isoDate(addMonths(firstDue,i)), paidAt:paidMap.get(n)||null, ...(purchaseId ? { purchaseId } : {}), ...(purchaseName ? { purchaseName } : {}), ...(stockMeta || {}), createdAt:new Date().toISOString() });
   }
 }
 
@@ -231,7 +266,11 @@ function registerPayment(id,clientId,showToast){
   const amount=Number(field.value);
   if(!Number.isFinite(amount)||amount<=0){field.classList.add('is-invalid');field.focus();return;}
   const chargeInterest=document.getElementById('paymentChargeInterest')?.checked ?? true;
+  const scope=snapshot.installments.filter(x=>x.clientId===clientId && x.purchaseId===selected.purchaseId && !x.paidAt && x.number>=selected.number);
+  const maxDue=scope.reduce((sum,i)=>sum+calculateLateAmounts(i,{...snapshot.settings,chargeLateInterest:chargeInterest,chargeLateFee:chargeInterest}).total,0);
+  if (amount > maxDue + 0.01) { showToast('Valor superior ao saldo desta venda: ' + brl.format(maxDue)); field.focus(); return; }
   let remaining=amount,appliedTotal=0;
+  const allocations=[];
   updateData(data=>{
     const list=data.installments.filter(x=>x.clientId===clientId&&x.purchaseId===selected.purchaseId&&!x.paidAt&&x.number>=selected.number).sort((a,b)=>a.number-b.number);
     for(const inst of list){
@@ -240,6 +279,7 @@ function registerPayment(id,clientId,showToast){
       const due=calculateLateAmounts(inst,cfg).total;
       const applied=Math.min(remaining,due);
       inst.paidAmount=+(Number(inst.paidAmount||0)+applied).toFixed(2);
+      allocations.push({ installmentId: inst.id, amount: +applied.toFixed(2), number: inst.number });
       remaining=+(remaining-applied).toFixed(2);appliedTotal=+(appliedTotal+applied).toFixed(2);
       if(due-applied<=0.009){
         const finalCalc=calculateLateAmounts({...inst,paidAmount:0,paidAt:null},cfg);
@@ -249,7 +289,7 @@ function registerPayment(id,clientId,showToast){
       }
     }
     data.paymentHistory ||= [];
-    data.paymentHistory.push({id:uid('pay'),clientId,purchaseId:selected.purchaseId || null,amount,applied:appliedTotal,unapplied:remaining,chargeInterest,createdAt:new Date().toISOString()});
+    data.paymentHistory.push({id:uid('pay'),clientId,clientName:data.clients.find(c=>c.id===clientId)?.name||'Cliente',purchaseId:selected.purchaseId || null,purchaseName:selected.purchaseName||'Produto não informado',amount:appliedTotal,applied:appliedTotal,unapplied:remaining,allocations,chargeInterest,balanceAfter:+data.installments.filter(i=>i.clientId===clientId&&i.purchaseId===selected.purchaseId&&!i.paidAt).reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0).toFixed(2),createdAt:new Date().toISOString()});
   });
   document.getElementById('paymentEntryCard')?.remove();
   showToast(`Pagamento de ${brl.format(amount)} registrado.`);
