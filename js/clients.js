@@ -250,10 +250,11 @@ function togglePayment(id,clientId,showToast){
   }
   document.getElementById('paymentEntryCard')?.remove();
   const due=calculateLateAmounts(selected,snapshot.settings).total;
-  const list=document.querySelector('#clientDetailsBody .installment-list');
+  const targetButton=[...document.querySelectorAll('#clientDetailsBody .installment-list [data-toggle-payment]')].find(btn=>btn.dataset.togglePayment===id);
+  const list=targetButton?.closest('.installment-list');
   if(!list)return;
   list.insertAdjacentHTML('beforebegin',`<div class="payment-entry-card" id="paymentEntryCard">
-    <div class="d-flex justify-content-between align-items-start gap-3 mb-3"><div><span class="panel-kicker">Novo recebimento</span><h3 class="h5 mt-1 mb-1">Parcela #${selected.number}</h3><div class="small text-secondary">Saldo atual: ${brl.format(due)}. O excedente pode abater as próximas parcelas.</div></div><button type="button" class="btn-close btn-close-white" aria-label="Fechar" data-payment-cancel></button></div>
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-3"><div><span class="panel-kicker">Novo recebimento</span><h3 class="h5 mt-1 mb-1">${escapeHtml(selected.purchaseName || 'Produto não informado')} · Parcela #${selected.number}</h3><div class="small text-secondary">Saldo atual: ${brl.format(due)}. O excedente pode abater as próximas parcelas.</div></div><button type="button" class="btn-close btn-close-white" aria-label="Fechar" data-payment-cancel></button></div>
     <div class="row g-3 align-items-end"><div class="col-12 col-md-5"><label class="form-label" for="paymentAmount">Valor recebido (R$)</label><input id="paymentAmount" class="form-control form-control-dark" type="number" min="0.01" step="0.01" value="${due.toFixed(2)}" required></div>
     <div class="col-12 col-md-4"><div class="form-check"><input class="form-check-input" id="paymentChargeInterest" type="checkbox" checked><label class="form-check-label small" for="paymentChargeInterest">Calcular juros e multa nas parcelas vencidas</label></div></div>
     <div class="col-12 col-md-3 d-flex gap-2"><button class="btn btn-outline-light flex-fill" type="button" data-payment-cancel>Cancelar</button><button class="btn btn-gold flex-fill" type="button" data-payment-submit="${id}" data-client-id="${clientId}">Registrar</button></div></div></div>`);
