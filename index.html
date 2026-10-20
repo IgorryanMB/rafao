@@ -28,6 +28,8 @@
         <button class="nav-link" data-page="clients"><i class="bi bi-people-fill"></i> Clientes</button>
         <button class="nav-link" data-page="inventory"><i class="bi bi-box-seam-fill"></i> Estoque</button>
         <button class="nav-link" data-page="notifications"><i class="bi bi-bell-fill"></i> Alertas</button>
+        <button class="nav-link" data-page="collections"><i class="bi bi-cash-coin"></i> Cobranças</button>
+        <button class="nav-link" data-page="reports"><i class="bi bi-graph-up-arrow"></i> Relatórios</button>
       </nav>
 
       <div class="mt-auto sidebar-footer">
@@ -55,6 +57,7 @@
           </div>
 
           <div class="row g-3" id="kpiCards"></div>
+          <div class="row g-3 mt-1" id="proFinanceKpis"></div>
 
           <div class="row g-4 mt-1">
             <div class="col-12 col-xl-8">
@@ -93,6 +96,28 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <section class="app-page d-none" id="page-collections">
+          <div class="page-heading"><div><span class="eyebrow">Financeiro</span><h1>Central de cobranças</h1><p>Separe os vencimentos e envie lembretes com o perfume correto.</p></div></div>
+          <div class="panel mb-3">
+            <div class="d-flex flex-wrap gap-2 mb-3" id="collectionTabs">
+              <button type="button" class="btn btn-gold" data-collection-filter="today">Vencendo hoje</button>
+              <button type="button" class="btn btn-outline-light" data-collection-filter="week">Próximos 7 dias</button>
+              <button type="button" class="btn btn-outline-light" data-collection-filter="overdue">Atrasados</button>
+              <button type="button" class="btn btn-outline-light" data-collection-filter="all">Todos em aberto</button>
+            </div>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><strong id="collectionSummary"></strong><input id="collectionSearch" class="form-control form-control-dark pro-search" placeholder="Buscar cliente ou perfume" aria-label="Buscar cobranças"></div>
+            <div class="table-responsive"><table class="table table-dark table-clean align-middle mb-0"><thead><tr><th>Cliente</th><th>Perfume / compra</th><th>Vencimento</th><th>Saldo atualizado</th><th>Status</th><th>Ações</th></tr></thead><tbody id="collectionsTable"></tbody></table></div>
+          </div>
+        </section>
+
+        <section class="app-page d-none" id="page-reports">
+          <div class="page-heading"><div><span class="eyebrow">Resultados</span><h1>Relatórios financeiros</h1><p>Vendas, pagamentos registrados e rentabilidade estimada.</p></div></div>
+          <div class="panel mb-4"><div class="d-flex flex-wrap align-items-end gap-3"><div><label for="reportMonth" class="form-label">Competência</label><input id="reportMonth" class="form-control form-control-dark" type="month"></div><button type="button" id="reportPrintBtn" class="btn btn-outline-gold"><i class="bi bi-printer me-1"></i>Imprimir relatório</button></div><div class="small text-secondary mt-3">Recebimentos contabilizados pelos pagamentos com data registrada. Lucro estimado somente nas vendas vinculadas ao estoque.</div></div>
+          <div class="row g-3" id="reportCards"></div>
+          <div class="panel mt-4"><div class="panel-header"><div><span class="panel-kicker">Detalhamento</span><h2>Vendas por perfume</h2></div></div><div class="table-responsive"><table class="table table-dark table-clean mb-0"><thead><tr><th>Perfume</th><th>Vendas</th><th>Valor vendido</th><th>Custo registrado</th><th>Lucro estimado</th></tr></thead><tbody id="reportProducts"></tbody></table></div></div>
+          <div class="panel mt-4"><div class="panel-header"><div><span class="panel-kicker">Recebimentos</span><h2>Pagamentos do período</h2></div></div><div id="reportPayments" class="stack-list"></div></div>
         </section>
 
         <section class="app-page d-none" id="page-clients">
@@ -199,6 +224,9 @@
               <div class="col-12 col-md-6"><label class="form-label">Telefone</label><input class="form-control form-control-dark" id="clientPhone" inputmode="tel" placeholder="(18) 99999-9999"></div>
               <div class="col-12 col-md-6"><label class="form-label">E-mail</label><input class="form-control form-control-dark" id="clientEmail" type="email"></div>
               <div class="col-12"><label class="form-label">Perfume da compra *</label><input class="form-control form-control-dark" id="clientPurchaseProduct" placeholder="Ex.: Dior Sauvage 100ml" required></div>
+               <div class="col-12 col-md-8"><label for="clientStockProduct" class="form-label">Vincular perfume ao estoque (opcional)</label><select id="clientStockProduct" class="form-select form-select-dark"><option value="">Venda sem movimentar estoque</option></select></div>
+               <div class="col-12 col-md-4"><label for="clientStockQty" class="form-label">Quantidade vendida</label><input id="clientStockQty" type="number" min="1" step="1" value="1" class="form-control form-control-dark"></div>
+               <div class="col-12"><div id="clientStockHint" class="small text-secondary">Selecione um produto para baixar automaticamente a quantidade do estoque.</div></div>
               <div class="col-12 col-md-6"><label class="form-label">Valor total *</label><div class="input-group input-group-dark"><span class="input-group-text">R$</span><input class="form-control" id="clientTotal" type="number" min="0" step="0.01" required></div></div>
               <div class="col-6 col-md-3"><label class="form-label">Parcelas *</label><input class="form-control form-control-dark" id="clientInstallments" type="number" min="1" max="60" value="1" required></div>
               <div class="col-6 col-md-4"><label class="form-label">1º vencimento *</label><input class="form-control form-control-dark" id="clientFirstDue" type="date" required></div>
@@ -259,5 +287,6 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="js/app.bundle.js"></script>
+  <script src="js/pro.js"></script>
 </body>
 </html>
