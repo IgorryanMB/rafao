@@ -50,7 +50,7 @@ export function renderDashboard() {
   document.getElementById('lowStockList').innerHTML = payments.length ? payments.map(p => {
     const client = data.clients.find(c => c.id === p.clientId);
     const date = p.createdAt ? shortDate.format(new Date(p.createdAt)) : 'Data indisponível';
-    return `<div class="stack-item"><div><div class="stack-item-title">${client?.name || 'Cliente removido'}</div><div class="stack-item-meta">${date} · ${brl.format(Number(p.applied ?? p.amount ?? 0))} aplicado</div></div><span class="stack-badge">${brl.format(Number(p.amount || 0))}</span></div>`;
+    return `<div class="stack-item"><div><div class="stack-item-title">${escapeHtml(client?.name || p.clientName || 'Cliente removido')}</div><div class="stack-item-meta">${escapeHtml(p.purchaseName || 'Compra não informada')} · ${date}</div></div><div class="d-flex align-items-center gap-2"><span class="stack-badge">${brl.format(Number(p.applied ?? p.amount ?? 0))}</span><button class="btn btn-sm btn-outline-gold" data-pro-receipt="${escapeHtml(p.id)}" title="Comprovante"><i class="bi bi-receipt"></i></button></div></div>`;
   }).join('') : `<div class="empty-state"><i class="bi bi-cash-coin"></i>Nenhum pagamento registrado ainda.</div>`;
 
   document.getElementById('summaryList').innerHTML = `
