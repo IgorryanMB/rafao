@@ -501,9 +501,20 @@ function togglePayment(id,clientId,showToast){
   const snapshot=getData(), selected=snapshot.installments.find(x=>x.id===id);
   if(!selected)return;
   if(selected.paidAt){
-    if(!confirm('Desfazer o pagamento desta parcela?'))return;
-    updateData(data=>{const i=data.installments.find(x=>x.id===id);if(i){i.paidAt=null;delete i.paidAmount;delete i.lateFeePaid;delete i.daysLatePaid;}});
-    showToast('Pagamento desfeito.');openClientDetails(clientId,showToast);return;
+    const related=(snapshot.paymentHistory||[]).filter(p=>!p.reversedAt&&Array.isArray(p.allocations)&&p.allocations.some(a=>a.installmentId===id));
+    if(related.some(p=>p.allocations.some(a=>a.installmentId!==id))){
+      showToast('Esta quitação abateu outras parcelas. Não é possível desfazer uma parcela isoladamente.');
+      return;
+    }
+    if(!confirm('Desfazer o pagamento desta parcela? Os comprovantes vinculados serão cancelados.'))return;
+    updateData(data=>{
+      const i=data.installments.find(x=>x.id===id);
+      if(i){i.paidAt=null;delete i.paidAmount;delete i.lateFeePaid;delete i.daysLatePaid;}
+      for(const p of data.paymentHistory||[]){
+        if(related.some(h=>h.id===p.id))p.reversedAt=new Date().toISOString();
+      }
+    });
+    showToast('Pagamento desfeito e histórico ajustado.');openClientDetails(clientId,showToast);return;
   }
   document.getElementById('paymentEntryCard')?.remove();
   const due=calculateLateAmounts(selected,snapshot.settings).total;
