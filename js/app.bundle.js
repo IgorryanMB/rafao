@@ -481,7 +481,7 @@ function editPurchaseSchedule(items, total, count, firstDue, name, stockMeta) {
     const dueDate = isoDate(addMonths(firstDue, number - 1));
     const details = { id: old?.id || uid('par'), clientId: items[0].clientId,
       number, amount: newAmount, dueDate, paidAt: null,
-      ...(old?.purchaseId ? { purchaseId: old.purchaseId } : {}),
+      ...(items[0].purchaseId ? { purchaseId: items[0].purchaseId } : {}),
       purchaseName: name, ...stockMeta,
       createdAt: old?.createdAt || items[0].createdAt || new Date().toISOString() };
     if (hasPartial) details.paidAmount = Number(old.paidAmount);
