@@ -68,3 +68,23 @@ body{margin:0;background:radial-gradient(circle at 85% 10%,rgba(216,169,74,.08),
   body.pro-print-report #page-reports .stack-item{background:#fff!important;border-color:#ccc!important;box-shadow:none!important}
   body.pro-print-report #page-reports .kpi-card{break-inside:avoid}
 }
+
+/* Modal cliente: cabecalho e botoes sempre visiveis; somente os campos rolam */
+#clientModal .modal-dialog-scrollable .modal-content,
+#purchaseEditModal .modal-dialog-scrollable .modal-content{max-height:calc(100dvh - 1.25rem)}
+#clientModal .modal-body,#purchaseEditModal .modal-body{min-height:0;overscroll-behavior:contain}
+#clientModal .modal-footer,#purchaseEditModal .modal-footer{flex-shrink:0;background:#0d1b2a}
+#clientModal .modal-footer .btn,#purchaseEditModal .modal-footer .btn{min-width:110px}
+.modal-dark .form-control:disabled,
+.modal-dark .form-select:disabled,
+.modal-dark .input-group .form-control:disabled{background-color:#122539!important;border-color:rgba(255,255,255,.08);color:#a8bad0!important;opacity:1}
+#clientEditHint{line-height:1.6}
+@media(max-height:650px){
+  #clientModal .modal-dialog,#purchaseEditModal .modal-dialog{margin-top:.35rem;margin-bottom:.35rem}
+  #clientModal .modal-dialog-scrollable .modal-content,
+  #purchaseEditModal .modal-dialog-scrollable .modal-content{max-height:calc(100dvh - .7rem)}
+}
+@media(max-width:575.98px){
+  #clientModal .modal-footer,#purchaseEditModal .modal-footer{justify-content:space-between}
+  #clientModal .modal-footer .btn,#purchaseEditModal .modal-footer .btn{flex:1}
+}
