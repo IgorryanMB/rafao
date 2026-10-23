@@ -1,4 +1,4 @@
-const CACHE='jv-perfumes-v4';
+const CACHE='jv-perfumes-v5';
 const ASSETS=['./','./index.html','./assets/css/styles.css','./assets/img/logo.png','./assets/img/icon-192.png','./assets/img/icon-512.png','./js/app.bundle.js','./js/pro.js','./js/app.js','./js/storage.js','./js/utils.js','./js/dashboard.js','./js/clients.js','./js/inventory.js','./js/notifications.js'];
 const DB='jv-perfumes-worker'; const STORE='alerts';
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));self.skipWaiting()});
