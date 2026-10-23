@@ -9,6 +9,7 @@ export function initClients(showToast) {
 
   document.querySelectorAll('[data-open-client-modal]').forEach(btn => btn.addEventListener('click', () => openClientModal()));
   document.getElementById('clientForm').addEventListener('submit', e => saveClient(e, showToast));
+  document.getElementById('purchaseEditForm').addEventListener('submit', e => saveEditedPurchase(e, showToast));
   document.getElementById('clientSearch').addEventListener('input', renderClients);
   document.getElementById('clientStatusFilter').addEventListener('change', renderClients);
 
@@ -16,9 +17,11 @@ export function initClients(showToast) {
     const open = e.target.closest('[data-open-client]');
     if (open) openClientDetails(open.dataset.openClient, showToast);
     const edit = e.target.closest('[data-edit-client]');
-    if (edit) openClientModal(edit.dataset.editClient);
+    if (edit) closeClientDetailsThen(() => openClientModal(edit.dataset.editClient));
     const newPurchase = e.target.closest('[data-new-purchase]');
-    if (newPurchase) { const clientId = newPurchase.dataset.newPurchase; detailsModal?.hide(); setTimeout(() => openPurchaseModal(clientId), 150); }
+    if (newPurchase) { const clientId = newPurchase.dataset.newPurchase; closeClientDetailsThen(() => openPurchaseModal(clientId)); }
+    const editPurchase = e.target.closest('[data-edit-purchase]');
+    if (editPurchase) { const clientId = editPurchase.dataset.clientId, purchaseKey = editPurchase.dataset.editPurchase; closeClientDetailsThen(() => openPurchaseEditor(clientId, purchaseKey)); }
     const del = e.target.closest('[data-delete-client]');
     if (del) deleteClient(del.dataset.deleteClient, showToast);
     const pay = e.target.closest('[data-toggle-payment]');
@@ -63,33 +66,102 @@ function clientCard(client, ins, dueDays) {
   const status = open <= .001 ? ['paid','Quitado'] : hasOverdue ? ['overdue','Em atraso'] : ['open','Em aberto'];
   return `<div class="col-12 col-md-6 col-xxl-4"><div class="client-card"><div class="client-top"><div class="d-flex gap-3"><div class="client-avatar">${initials(client.name)}</div><div><div class="client-name">${escapeHtml(client.name)}</div><div class="client-meta">${escapeHtml(client.phone || client.email || 'Sem contato')}</div></div></div><span class="status-pill status-${status[0]}">${status[1]}</span></div><div class="money-row"><div class="money-block"><small>Contrato</small><strong>${brl.format(total)}</strong></div><div class="money-block text-end"><small>Saldo atualizado</small><strong>${brl.format(open)}</strong></div></div><div class="d-flex justify-content-between small text-secondary mt-3"><span>${paidCount}/${ins.length} pagas</span><span>${progress}%</span></div><div class="progress mt-2"><div class="progress-bar" style="width:${progress}%"></div></div><div class="client-actions"><button class="btn btn-sm btn-outline-light" data-open-client="${client.id}"><i class="bi bi-eye me-1"></i>Ver</button>${client.phone ? `<button class="btn btn-sm btn-outline-success" data-whatsapp-client="${client.id}"><i class="bi bi-whatsapp"></i></button>` : ''}<button class="btn btn-sm btn-outline-secondary" data-edit-client="${client.id}"><i class="bi bi-pencil"></i></button></div></div></div>`;
 }
+function closeClientDetailsThen(callback) {
+  const el = document.getElementById('clientDetailsModal');
+  if (el && el.classList.contains('show')) {
+    el.addEventListener('hidden.bs.modal', callback, { once: true });
+    detailsModal.hide();
+  } else callback();
+}
+function setClientModalMode(editing) {
+  const sale = document.getElementById('clientSaleFields');
+  const hint = document.getElementById('clientEditHint');
+  sale.classList.toggle('d-none', editing);
+  hint.classList.toggle('d-none', !editing);
+  ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct','clientStockProduct','clientStockQty'].forEach(fieldId => {
+    document.getElementById(fieldId).disabled = editing;
+  });
+  document.getElementById('clientSaveButton').textContent = editing ? 'Salvar dados do cliente' : 'Salvar compra';
+}
+
+function openPurchaseEditor(clientId, purchaseKey) {
+  const data = getData();
+  const client = data.clients.find(c => c.id === clientId);
+  const items = data.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === purchaseKey)
+    .sort((a,b) => a.number - b.number || a.dueDate.localeCompare(b.dueDate));
+  if (!client || !items.length) return;
+  const first = items[0];
+  const started = items.some(i => i.paidAt || Number(i.paidAmount || 0) > 0);
+  document.getElementById('purchaseEditClientId').value = clientId;
+  document.getElementById('purchaseEditId').value = purchaseKey;
+  document.getElementById('purchaseEditName').value = items.find(i => i.purchaseName)?.purchaseName || '';
+  document.getElementById('purchaseEditTotal').value = items.reduce((s,i) => s + Number(i.amount || 0),0).toFixed(2);
+  document.getElementById('purchaseEditCount').value = items.length;
+  document.getElementById('purchaseEditDue').value = first.dueDate;
+  document.getElementById('purchaseEditTitle').textContent = 'Editar compra — ' + client.name;
+  ['purchaseEditTotal','purchaseEditCount','purchaseEditDue'].forEach(id => document.getElementById(id).disabled = started);
+  document.getElementById('purchaseEditHint').textContent = started
+    ? 'Esta compra já recebeu pagamento. Você pode corrigir o nome do perfume, mas o valor e o parcelamento ficam protegidos para não alterar o histórico.'
+    : 'Você pode corrigir perfume, valor, número de parcelas e vencimento. A edição não movimenta o estoque.';
+  bootstrap.Modal.getOrCreateInstance('#purchaseEditModal').show();
+}
+
+function saveEditedPurchase(e, showToast) {
+  e.preventDefault();
+  const clientId = document.getElementById('purchaseEditClientId').value;
+  const key = document.getElementById('purchaseEditId').value;
+  const name = document.getElementById('purchaseEditName').value.trim();
+  if (!name) { showToast('Informe o nome do perfume.'); return; }
+  const snapshot = getData();
+  const current = snapshot.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key);
+  if (!current.length) { showToast('Compra não encontrada.'); return; }
+  const hasPayment = current.some(i => i.paidAt || Number(i.paidAmount || 0) > 0);
+  const total = Number(document.getElementById('purchaseEditTotal').value);
+  const count = Number(document.getElementById('purchaseEditCount').value);
+  const firstDue = parseLocalDate(document.getElementById('purchaseEditDue').value);
+  if (!hasPayment && (!Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue)) {
+    showToast('Confira valor, parcelas e vencimento.'); return;
+  }
+  updateData(data => {
+    const items = data.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key);
+    if (hasPayment) {
+      items.forEach(i => { i.purchaseName = name; });
+    } else {
+      const original = items[0];
+      const purchaseId = original.purchaseId || uid('buy');
+      const createdAt = original.createdAt || new Date().toISOString();
+      const stockMeta = original.stockProductId ? { stockProductId: original.stockProductId, stockQty: original.stockQty, saleCostTotal: original.saleCostTotal } : null;
+      data.installments = data.installments.filter(i => !(i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key));
+      const start = data.installments.length;
+      createInstallments(data, clientId, total, count, firstDue, new Map(), purchaseId, name, stockMeta);
+      data.installments.slice(start).forEach(i => { i.createdAt = createdAt; });
+    }
+  });
+  const editor = document.getElementById('purchaseEditModal');
+  editor.addEventListener('hidden.bs.modal', () => openClientDetails(clientId, showToast), { once: true });
+  bootstrap.Modal.getOrCreateInstance(editor).hide();
+  showToast('Dados desta compra atualizados sem alterar as outras vendas.');
+}
 function openClientModal(id = null) {
   const form = document.getElementById('clientForm');
   purchaseClientId = null;
-  resetSaleStockControls();
   form.reset();
-  ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = false; });
+  resetSaleStockControls();
+  setClientModalMode(Boolean(id));
   document.getElementById('clientId').value = '';
   document.getElementById('clientInstallments').value = 1;
-  const d = new Date(); d.setDate(d.getDate()+7);
+  const d = new Date(); d.setDate(d.getDate() + 7);
   document.getElementById('clientFirstDue').value = isoDate(d);
   document.getElementById('clientModalTitle').textContent = id ? 'Editar cliente' : 'Novo cliente';
   if (id) {
-    const data = getData(); const c = data.clients.find(x=>x.id===id); const ins = data.installments.filter(x=>x.clientId===id).sort((a,b)=>a.number-b.number);
+    const c = getData().clients.find(x => x.id === id);
     if (!c) return;
-    const total = ins.reduce((s,i)=>s+Number(i.amount||0),0);
     document.getElementById('clientId').value = c.id;
     document.getElementById('clientName').value = c.name;
     document.getElementById('clientPhone').value = c.phone || '';
     document.getElementById('clientEmail').value = c.email || '';
     document.getElementById('clientNotes').value = c.notes || '';
-    document.getElementById('clientTotal').value = total.toFixed(2);
-    document.getElementById('clientInstallments').value = ins.length || 1;
-    document.getElementById('clientFirstDue').value = ins[0]?.dueDate || isoDate(d);
-    ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct'].forEach(fieldId => { document.getElementById(fieldId).disabled = true; });
   }
-  document.getElementById('clientStockProduct').disabled = Boolean(id);
-  document.getElementById('clientStockQty').disabled = Boolean(id);
   clientModal.show();
 }
 
@@ -113,6 +185,7 @@ function openPurchaseModal(clientId) {
   const due = new Date(); due.setDate(due.getDate() + 7);
   document.getElementById('clientFirstDue').value = isoDate(due);
   document.getElementById('clientModalTitle').textContent = 'Nova compra — ' + client.name;
+  setClientModalMode(false);
   document.getElementById('clientStockProduct').disabled = false;
   document.getElementById('clientStockQty').disabled = false;
   clientModal.show();
@@ -206,11 +279,11 @@ export function openClientDetails(id, showToast = ()=>{}) {
   const data = getData(); const client = data.clients.find(c=>c.id===id); if (!client) return;
   const ins = data.installments.filter(i=>i.clientId===id).sort((a,b)=>a.number-b.number);
   const contracted = ins.reduce((sum,i)=>sum+Number(i.amount||0),0);
-  const paid = ins.filter(i=>i.paidAt).reduce((sum,i)=>sum+Number(i.paidAmount ?? i.amount ?? 0),0);
+  const paid = ins.reduce((sum,i)=>sum+Number(i.paidAmount ?? (i.paidAt ? i.amount : 0)),0);
   const openUpdated = ins.filter(i=>!i.paidAt).reduce((sum,i)=>sum+calculateLateAmounts(i,data.settings).total,0);
   const additions = ins.filter(i=>!i.paidAt).reduce((sum,i)=>{const x=calculateLateAmounts(i,data.settings);return sum+x.interest+x.fee},0);
   document.getElementById('detailsClientName').textContent = client.name;
-  document.getElementById('clientDetailsBody').innerHTML = `<div class="row g-3 mb-4"><div class="col-6 col-lg"><div class="detail-stat"><small>Contrato</small><strong>${brl.format(contracted)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Já pago</small><strong>${brl.format(paid)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Acréscimos atuais</small><strong>${brl.format(additions)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Saldo atualizado</small><strong>${brl.format(openUpdated)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Parcelas</small><strong>${ins.filter(i=>i.paidAt).length}/${ins.length}</strong></div></div></div><div class="small text-secondary mb-3"><i class="bi bi-percent me-1"></i>Juros configurados: ${Number(data.settings.lateInterestMonthly ?? 20).toLocaleString('pt-BR')}% ao mês proporcional aos dias de atraso + multa de ${Number(data.settings.lateFeePercent ?? 2).toLocaleString('pt-BR')}%.</div><div class="d-flex flex-wrap gap-2 mb-4">${client.phone?`<button type="button" class="btn btn-outline-success" data-whatsapp-client="${client.id}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</button>`:''}<button class="btn btn-outline-light" data-edit-client="${client.id}" data-bs-dismiss="modal"><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-gold" data-new-purchase="${client.id}"><i class="bi bi-bag-plus me-1"></i>Nova compra</button><button class="btn btn-outline-danger ms-md-auto" data-delete-client="${client.id}"><i class="bi bi-trash me-1"></i>Excluir</button></div><h3 class="h6 mb-3">Compras e parcelas</h3>${renderPurchaseSections(ins,data.settings,client.id)}${client.notes?`<div class="mt-4 p-3 rounded-3 border border-secondary-subtle"><small class="text-secondary d-block mb-1">Observações</small>${escapeHtml(client.notes)}</div>`:''}`;
+  document.getElementById('clientDetailsBody').innerHTML = `<div class="row g-3 mb-4"><div class="col-6 col-lg"><div class="detail-stat"><small>Contrato</small><strong>${brl.format(contracted)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Já pago</small><strong>${brl.format(paid)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Acréscimos atuais</small><strong>${brl.format(additions)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Saldo atualizado</small><strong>${brl.format(openUpdated)}</strong></div></div><div class="col-6 col-lg"><div class="detail-stat"><small>Parcelas</small><strong>${ins.filter(i=>i.paidAt).length}/${ins.length}</strong></div></div></div><div class="small text-secondary mb-3"><i class="bi bi-percent me-1"></i>Juros configurados: ${Number(data.settings.lateInterestMonthly ?? 20).toLocaleString('pt-BR')}% ao mês proporcional aos dias de atraso + multa de ${Number(data.settings.lateFeePercent ?? 2).toLocaleString('pt-BR')}%.</div><div class="d-flex flex-wrap gap-2 mb-4">${client.phone?`<button type="button" class="btn btn-outline-success" data-whatsapp-client="${client.id}"><i class="bi bi-whatsapp me-1"></i>WhatsApp</button>`:''}<button class="btn btn-outline-light" data-edit-client="${client.id}"><i class="bi bi-pencil me-1"></i>Editar</button><button class="btn btn-gold" data-new-purchase="${client.id}"><i class="bi bi-bag-plus me-1"></i>Nova compra</button><button class="btn btn-outline-danger ms-md-auto" data-delete-client="${client.id}"><i class="bi bi-trash me-1"></i>Excluir</button></div><h3 class="h6 mb-3">Compras e parcelas</h3>${renderPurchaseSections(ins,data.settings,client.id)}${client.notes?`<div class="mt-4 p-3 rounded-3 border border-secondary-subtle"><small class="text-secondary d-block mb-1">Observações</small>${escapeHtml(client.notes)}</div>`:''}`;
   detailsModal.show();
 }
 
@@ -227,7 +300,7 @@ function renderPurchaseSections(installments, settings, clientId) {
     const paid = group.items.filter(item => item.paidAt).length;
     const firstOpen = group.items.find(item => !item.paidAt);
     const productName = group.items.find(item => item.purchaseName)?.purchaseName || 'Produto não informado';
-    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div>' + (firstOpen ? '<button class="btn btn-sm btn-outline-success" data-toggle-payment="' + firstOpen.id + '" data-client-id="' + clientId + '"><i class="bi bi-cash-coin me-1"></i>Abater valor desta venda</button>' : '<span class="small text-success"><i class="bi bi-check-circle me-1"></i>Venda quitada</span>') + '</div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
+    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div>' + '<div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-light" data-edit-purchase="' + escapeHtml(group.items[0].purchaseId || 'legacy-purchase') + '" data-client-id="' + escapeHtml(clientId) + '"><i class="bi bi-pencil me-1"></i>Editar compra</button>' + (firstOpen ? '<button class="btn btn-sm btn-outline-success" data-toggle-payment="' + firstOpen.id + '" data-client-id="' + clientId + '"><i class="bi bi-cash-coin me-1"></i>Abater valor desta venda</button>' : '<span class="small text-success"><i class="bi bi-check-circle me-1"></i>Venda quitada</span>') + '</div></div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
   }).join('') || '<div class="empty-state">Nenhuma compra registrada.</div>';
 }
 
