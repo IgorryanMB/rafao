@@ -88,3 +88,14 @@ body{margin:0;background:radial-gradient(circle at 85% 10%,rgba(216,169,74,.08),
   #clientModal .modal-footer,#purchaseEditModal .modal-footer{justify-content:space-between}
   #clientModal .modal-footer .btn,#purchaseEditModal .modal-footer .btn{flex:1}
 }
+
+/* Acesso direto à edição de cada pedido */
+.client-card .client-actions{flex-wrap:wrap}
+.client-card .client-actions [data-edit-orders],
+.client-card .client-actions [data-open-client]{flex:1 1 42%}
+.client-card .client-actions [data-edit-client]{flex:1 1 48%}
+.client-card .client-actions [data-whatsapp-client]{flex:0 0 43px}
+#clientOrdersList .stack-item{flex-wrap:wrap}
+#clientOrdersList .stack-item > .flex-grow-1{min-width:155px;overflow-wrap:anywhere}
+#purchaseEditStockHint{line-height:1.5}
+#purchaseEditModal .modal-dialog{max-width:610px}
