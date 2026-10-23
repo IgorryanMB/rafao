@@ -21,7 +21,9 @@ export function initClients(showToast) {
     const newPurchase = e.target.closest('[data-new-purchase]');
     if (newPurchase) { const clientId = newPurchase.dataset.newPurchase; closeClientDetailsThen(() => openPurchaseModal(clientId)); }
     const editPurchase = e.target.closest('[data-edit-purchase]');
-    if (editPurchase) { const clientId = editPurchase.dataset.clientId, purchaseKey = editPurchase.dataset.editPurchase; closeClientDetailsThen(() => openPurchaseEditor(clientId, purchaseKey)); }
+    if (editPurchase) { const clientId = editPurchase.dataset.clientId, purchaseKey = editPurchase.dataset.editPurchase; closeOrderParentThen(() => openPurchaseEditor(clientId, purchaseKey)); }
+    const editOrders = e.target.closest('[data-edit-orders]');
+    if (editOrders) { const id = editOrders.dataset.editOrders, groups = clientOrderGroups(id); if (groups.length === 1) closeOrderParentThen(() => openPurchaseEditor(id, groups[0][0])); else openClientDetails(id, showToast); }
     const del = e.target.closest('[data-delete-client]');
     if (del) deleteClient(del.dataset.deleteClient, showToast);
     const pay = e.target.closest('[data-toggle-payment]');
@@ -65,7 +67,8 @@ function clientCard(client, ins, dueDays) {
   const progress = total > 0 ? Math.min(100,Math.round((principalPaid/total)*100)) : 0;
   const hasOverdue = ins.some(i=>installmentStatus(i,dueDays).key==='overdue');
   const status = open <= .001 ? ['paid','Quitado'] : hasOverdue ? ['overdue','Em atraso'] : ['open','Em aberto'];
-  return `<div class="col-12 col-md-6 col-xxl-4"><div class="client-card"><div class="client-top"><div class="d-flex gap-3"><div class="client-avatar">${initials(client.name)}</div><div><div class="client-name">${escapeHtml(client.name)}</div><div class="client-meta">${escapeHtml(client.phone || client.email || 'Sem contato')}</div></div></div><span class="status-pill status-${status[0]}">${status[1]}</span></div><div class="money-row"><div class="money-block"><small>Contrato</small><strong>${brl.format(total)}</strong></div><div class="money-block text-end"><small>Saldo atualizado</small><strong>${brl.format(open)}</strong></div></div><div class="d-flex justify-content-between small text-secondary mt-3"><span>${paidCount}/${ins.length} parcelas quitadas</span><span>${progress}% do valor pago</span></div><div class="progress mt-2"><div class="progress-bar" style="width:${progress}%"></div></div><div class="client-actions"><button class="btn btn-sm btn-outline-light" data-open-client="${client.id}"><i class="bi bi-eye me-1"></i>Ver</button>${client.phone ? `<button class="btn btn-sm btn-outline-success" data-whatsapp-client="${client.id}"><i class="bi bi-whatsapp"></i></button>` : ''}<button class="btn btn-sm btn-outline-secondary" data-edit-client="${client.id}"><i class="bi bi-pencil"></i></button></div></div></div>`;
+  const ordersCount = new Set(ins.map(i => i.purchaseId || 'legacy-purchase')).size;
+  return `<div class="col-12 col-md-6 col-xxl-4"><div class="client-card"><div class="client-top"><div class="d-flex gap-3"><div class="client-avatar">${initials(client.name)}</div><div><div class="client-name">${escapeHtml(client.name)}</div><div class="client-meta">${escapeHtml(client.phone || client.email || 'Sem contato')}</div></div></div><span class="status-pill status-${status[0]}">${status[1]}</span></div><div class="money-row"><div class="money-block"><small>Contrato</small><strong>${brl.format(total)}</strong></div><div class="money-block text-end"><small>Saldo atualizado</small><strong>${brl.format(open)}</strong></div></div><div class="d-flex justify-content-between small text-secondary mt-3"><span>${paidCount}/${ins.length} parcelas quitadas</span><span>${progress}% do valor pago</span></div><div class="progress mt-2"><div class="progress-bar" style="width:${progress}%"></div></div><div class="client-actions"><button type="button" class="btn btn-sm btn-outline-light" data-open-client="${client.id}"><i class="bi bi-eye me-1"></i>Ver pedidos</button><button type="button" class="btn btn-sm btn-outline-gold" data-edit-orders="${client.id}"><i class="bi bi-pencil-square me-1"></i>${ordersCount === 1 ? 'Editar pedido' : 'Editar pedidos'}</button><button type="button" class="btn btn-sm btn-outline-secondary" data-edit-client="${client.id}"><i class="bi bi-person-gear me-1"></i>Dados</button>${client.phone ? `<button type="button" class="btn btn-sm btn-outline-success" data-whatsapp-client="${client.id}" aria-label="WhatsApp de ${escapeHtml(client.name)}"><i class="bi bi-whatsapp"></i></button>` : ''}</div></div></div>`;
 }
 function closeClientDetailsThen(callback) {
   const el = document.getElementById('clientDetailsModal');
@@ -79,32 +82,176 @@ function setClientModalMode(editing) {
   const hint = document.getElementById('clientEditHint');
   sale.classList.toggle('d-none', editing);
   hint.classList.toggle('d-none', !editing);
+  document.getElementById('clientOrdersInEdit').classList.toggle('d-none', !editing);
   ['clientTotal','clientInstallments','clientFirstDue','clientPurchaseProduct','clientStockProduct','clientStockQty'].forEach(fieldId => {
     document.getElementById(fieldId).disabled = editing;
   });
   document.getElementById('clientSaveButton').textContent = editing ? 'Salvar dados do cliente' : 'Salvar compra';
 }
 
+
+function purchaseRows(data, clientId, key) {
+  return data.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key)
+    .sort((a,b) => Number(a.number || 0) - Number(b.number || 0));
+}
+
+function clientOrderGroups(clientId) {
+  const data = getData(), groups = new Map();
+  for (const i of data.installments.filter(i => i.clientId === clientId)) {
+    const key = i.purchaseId || 'legacy-purchase';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  }
+  return [...groups.entries()];
+}
+
+function renderOrdersInClientEditor(clientId) {
+  const list = document.getElementById('clientOrdersList');
+  if (!list) return;
+  const groups = clientOrderGroups(clientId);
+  list.innerHTML = groups.length ? groups.map(([key, rows], index) => {
+    const name = rows.find(i => i.purchaseName)?.purchaseName || 'Produto não informado';
+    const total = rows.reduce((s,i) => s + Number(i.amount || 0), 0);
+    const paid = rows.filter(i => i.paidAt).length;
+    return '<div class="stack-item"><div class="flex-grow-1"><div class="stack-item-title">Pedido ' + (index + 1) + ' — ' + escapeHtml(name) + '</div>'
+      + '<div class="stack-item-meta">' + brl.format(total) + ' · ' + paid + '/' + rows.length + ' parcela(s) quitada(s)</div></div>'
+      + '<button type="button" class="btn btn-sm btn-outline-gold flex-shrink-0" data-edit-purchase="' + escapeHtml(key) + '" data-client-id="' + escapeHtml(clientId) + '"><i class="bi bi-pencil-square me-1"></i>Editar pedido</button></div>';
+  }).join('') : '<div class="small text-secondary">Este cliente ainda não possui pedidos.</div>';
+}
+
+function closeOrderParentThen(callback) {
+  const visible = [document.getElementById('clientDetailsModal'), document.getElementById('clientModal')]
+    .find(el => el?.classList.contains('show'));
+  if (!visible) { callback(); return; }
+  visible.addEventListener('hidden.bs.modal', callback, { once: true });
+  bootstrap.Modal.getOrCreateInstance(visible).hide();
+}
+
+function fillPurchaseStockSelector(productId, qty) {
+  const data = getData(), select = document.getElementById('purchaseEditStockProduct');
+  select.innerHTML = '<option value="">Venda sem vínculo de estoque</option>' + data.products
+    .slice().sort((a,b) => String(a.name).localeCompare(String(b.name), 'pt-BR'))
+    .map(p => '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + ' (' + p.qty + ' un.)</option>').join('');
+  if (productId && !data.products.some(p => p.id === productId)) {
+    select.insertAdjacentHTML('beforeend','<option value="' + escapeHtml(productId) + '">Produto original removido do estoque</option>');
+  }
+  select.value = productId || '';
+  document.getElementById('purchaseEditStockQty').value = Number(qty) > 0 ? String(qty) : '1';
+  updatePurchaseStockHint();
+}
+
+function updatePurchaseStockHint(autoName = false) {
+  const clientId = document.getElementById('purchaseEditClientId').value;
+  const key = document.getElementById('purchaseEditId').value;
+  const rows = purchaseRows(getData(), clientId, key);
+  const old = rows[0] || {};
+  const selected = document.getElementById('purchaseEditStockProduct').value;
+  const qty = Number(document.getElementById('purchaseEditStockQty').value);
+  const product = getData().products.find(p => p.id === selected);
+  const label = document.getElementById('purchaseEditStockHint');
+  label.classList.remove('text-danger');
+  if (!selected) {
+    label.textContent = old.stockProductId ? 'Ao salvar, as unidades originalmente baixadas retornarão ao estoque.' : 'Pedido avulso, sem movimentação de estoque.';
+    return;
+  }
+  if (!product) {
+    label.textContent = 'O produto original não está mais cadastrado. Recrie-o antes de alterar o vínculo.';
+    label.classList.add('text-danger');
+    return;
+  }
+  const available = Number(product.qty || 0) + (old.stockProductId === selected ? Number(old.stockQty || 0) : 0);
+  const valid = Number.isInteger(qty) && qty >= 1 && qty <= available;
+  label.textContent = valid
+    ? 'Disponível para este pedido: ' + available + ' un. · Quantidade selecionada: ' + qty + ' un.'
+    : 'Quantidade inválida ou insuficiente. Disponíveis para este pedido: ' + available + ' un.';
+  if (!valid) label.classList.add('text-danger');
+  if (autoName && product) document.getElementById('purchaseEditName').value = product.name;
+}
+
 function openPurchaseEditor(clientId, purchaseKey) {
-  const data = getData();
-  const client = data.clients.find(c => c.id === clientId);
-  const items = data.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === purchaseKey)
-    .sort((a,b) => a.number - b.number || a.dueDate.localeCompare(b.dueDate));
+  const data = getData(), client = data.clients.find(c => c.id === clientId);
+  const items = purchaseRows(data, clientId, purchaseKey);
   if (!client || !items.length) return;
+  const paid = items.filter(i => i.paidAt);
   const first = items[0];
-  const started = items.some(i => i.paidAt || Number(i.paidAmount || 0) > 0);
   document.getElementById('purchaseEditClientId').value = clientId;
   document.getElementById('purchaseEditId').value = purchaseKey;
   document.getElementById('purchaseEditName').value = items.find(i => i.purchaseName)?.purchaseName || '';
-  document.getElementById('purchaseEditTotal').value = items.reduce((s,i) => s + Number(i.amount || 0),0).toFixed(2);
+  document.getElementById('purchaseEditTotal').value = items.reduce((sum,i) => sum + Number(i.amount || 0),0).toFixed(2);
   document.getElementById('purchaseEditCount').value = items.length;
   document.getElementById('purchaseEditDue').value = first.dueDate;
-  document.getElementById('purchaseEditTitle').textContent = 'Editar compra — ' + client.name;
-  ['purchaseEditTotal','purchaseEditCount','purchaseEditDue'].forEach(id => document.getElementById(id).disabled = started);
-  document.getElementById('purchaseEditHint').textContent = started
-    ? 'Esta compra já recebeu pagamento. Você pode corrigir o nome do perfume, mas o valor e o parcelamento ficam protegidos para não alterar o histórico.'
-    : 'Você pode corrigir perfume, valor, número de parcelas e vencimento. A edição não movimenta o estoque.';
+  document.getElementById('purchaseEditTitle').textContent = 'Editar pedido — ' + client.name;
+  ['purchaseEditTotal','purchaseEditCount','purchaseEditDue'].forEach(id => document.getElementById(id).disabled = false);
+  fillPurchaseStockSelector(first.stockProductId || '', first.stockQty || 1);
+  document.getElementById('purchaseEditHint').textContent = paid.length
+    ? paid.length + ' parcela(s) já quitada(s). Você pode editar o pedido e redistribuir o saldo restante, mas valores e datas de parcelas quitadas serão preservados. Não é possível reduzir o total abaixo do que já foi pago.'
+    : 'Altere perfume, valor, quantidade, parcelas e vencimento. Pagamentos parciais existentes continuarão vinculados ao pedido.';
   bootstrap.Modal.getOrCreateInstance('#purchaseEditModal').show();
+}
+
+function editPurchaseSchedule(items, total, count, firstDue, name, stockMeta) {
+  const moneyToCents = value => Math.round(Number(value || 0) * 100);
+  const paidRows = items.filter(i => Boolean(i.paidAt));
+  const partiallyPaid = items.filter(i => !i.paidAt && Number(i.paidAmount || 0) > 0);
+  const protectedRows = [...paidRows, ...partiallyPaid];
+  const highestProtectedNumber = protectedRows.reduce((max, i) => Math.max(max, Number(i.number || 0)), 0);
+  if (count < highestProtectedNumber) throw new Error('Existem pagamentos até a parcela ' + highestProtectedNumber + '. Não é possível reduzir a quantidade abaixo disso.');
+  const settledNumbers = new Set(paidRows.map(i => Number(i.number)));
+  const fixedCents = paidRows.reduce((sum,i) => sum + moneyToCents(i.amount), 0);
+  const partiallyPaidCents = partiallyPaid.reduce((sum,i) => sum + moneyToCents(i.paidAmount), 0);
+  const editableNumbers = Array.from({length: count}, (_, n) => n + 1).filter(n => !settledNumbers.has(n));
+  const totalCents = moneyToCents(total);
+  const remainderCents = totalCents - fixedCents - partiallyPaidCents;
+  if (!editableNumbers.length && totalCents !== fixedCents)
+    throw new Error('Pedido quitado: mantenha o valor total ou aumente o número de parcelas para adicionar saldo.');
+  if (remainderCents < editableNumbers.length)
+    throw new Error('O novo total precisa cobrir os pagamentos já recebidos e manter pelo menos R$ 0,01 em cada parcela ainda aberta.');
+  const oldByNumber = new Map(items.map(i => [Number(i.number), i]));
+  const each = editableNumbers.length ? Math.floor(remainderCents / editableNumbers.length) : 0;
+  let remainder = editableNumbers.length ? remainderCents % editableNumbers.length : 0;
+  const next = [];
+  for (let number = 1; number <= count; number++) {
+    const old = oldByNumber.get(number);
+    if (settledNumbers.has(number)) {
+      next.push({...old, purchaseName: name, ...stockMeta});
+      continue;
+    }
+    const hasPartial = Number(old?.paidAmount || 0) > 0;
+    const prepaid = hasPartial ? moneyToCents(old.paidAmount) : 0;
+    const delta = each + (remainder-- > 0 ? 1 : 0);
+    const newAmount = (prepaid + delta) / 100;
+    const dueDate = isoDate(addMonths(firstDue, number - 1));
+    const details = { id: old?.id || uid('par'), clientId: items[0].clientId,
+      number, amount: newAmount, dueDate, paidAt: null,
+      ...(old?.purchaseId ? { purchaseId: old.purchaseId } : {}),
+      purchaseName: name, ...stockMeta,
+      createdAt: old?.createdAt || items[0].createdAt || new Date().toISOString() };
+    if (hasPartial) details.paidAmount = Number(old.paidAmount);
+    next.push(details);
+  }
+  return next;
+}
+
+function planStockChange(data, current, newProductId, newQty) {
+  const oldProductId = current.stockProductId || '';
+  const oldQty = oldProductId ? Number(current.stockQty || 0) : 0;
+  const changed = oldProductId !== newProductId || (newProductId && oldQty !== newQty);
+  const oldProduct = data.products.find(p => p.id === oldProductId);
+  const newProduct = data.products.find(p => p.id === newProductId);
+  if (!changed) return {changed: false, stockMeta: oldProductId ? {
+    stockProductId: oldProductId, stockQty: oldQty,
+    saleCostTotal: Number(current.saleCostTotal || 0)
+  } : {}};
+  if (oldProductId && !oldProduct)
+    throw new Error('Produto original não encontrado no estoque. Cadastre-o novamente antes de alterar o vínculo.');
+  if (newProductId && !newProduct) throw new Error('Selecione um produto válido do estoque.');
+  if (newProductId && (!Number.isInteger(newQty) || newQty < 1))
+    throw new Error('Informe uma quantidade válida de unidades.');
+  const available = newProduct ? Number(newProduct.qty || 0) + (oldProductId === newProductId ? oldQty : 0) : 0;
+  if (newProduct && newQty > available)
+    throw new Error('Estoque insuficiente. Disponível para este pedido: ' + available + ' unidade(s).');
+  return {changed:true, oldProduct, oldQty, newProduct, newQty,
+    stockMeta: newProduct ? {stockProductId:newProduct.id, stockQty:newQty, saleCostTotal:+(Number(newProduct.cost || 0)*newQty).toFixed(2)} : {} };
 }
 
 function saveEditedPurchase(e, showToast) {
@@ -112,37 +259,55 @@ function saveEditedPurchase(e, showToast) {
   const clientId = document.getElementById('purchaseEditClientId').value;
   const key = document.getElementById('purchaseEditId').value;
   const name = document.getElementById('purchaseEditName').value.trim();
-  if (!name) { showToast('Informe o nome do perfume.'); return; }
-  const snapshot = getData();
-  const current = snapshot.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key);
-  if (!current.length) { showToast('Compra não encontrada.'); return; }
-  const hasPayment = current.some(i => i.paidAt || Number(i.paidAmount || 0) > 0);
   const total = Number(document.getElementById('purchaseEditTotal').value);
   const count = Number(document.getElementById('purchaseEditCount').value);
   const firstDue = parseLocalDate(document.getElementById('purchaseEditDue').value);
-  if (!hasPayment && (!Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue)) {
-    showToast('Confira valor, parcelas e vencimento.'); return;
+  const newStockId = document.getElementById('purchaseEditStockProduct').value;
+  const newStockQty = Number(document.getElementById('purchaseEditStockQty').value);
+  if (!name || !Number.isFinite(total) || total <= 0 || !Number.isInteger(count) || count < 1 || count > 60 || !firstDue) {
+    showToast('Confira perfume, valor, parcelas e vencimento.'); return;
+  }
+  const snapshot = getData();
+  const original = purchaseRows(snapshot, clientId, key);
+  if (!original.length) { showToast('Pedido não encontrado.'); return; }
+  let plan, change;
+  try {
+    change = planStockChange(snapshot, original[0], newStockId, newStockQty);
+    plan = editPurchaseSchedule(original, total, count, firstDue, name, change.stockMeta);
+  } catch (err) {
+    showToast(err.message || 'Não foi possível alterar o pedido.');
+    return;
   }
   updateData(data => {
-    const items = data.installments.filter(i => i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key);
-    if (hasPayment) {
-      items.forEach(i => { i.purchaseName = name; });
-    } else {
-      const original = items[0];
-      const purchaseId = original.purchaseId || uid('buy');
-      const createdAt = original.createdAt || new Date().toISOString();
-      const stockMeta = original.stockProductId ? { stockProductId: original.stockProductId, stockQty: original.stockQty, saleCostTotal: original.saleCostTotal } : null;
-      data.installments = data.installments.filter(i => !(i.clientId === clientId && (i.purchaseId || 'legacy-purchase') === key));
-      const start = data.installments.length;
-      createInstallments(data, clientId, total, count, firstDue, new Map(), purchaseId, name, stockMeta);
-      data.installments.slice(start).forEach(i => { i.createdAt = createdAt; });
+    if (change.changed) {
+      const originalProduct = data.products.find(p => p.id === original[0].stockProductId);
+      const selectedProduct = data.products.find(p => p.id === newStockId);
+      data.movements ||= [];
+      if (originalProduct && change.oldQty) {
+        originalProduct.qty = Number(originalProduct.qty || 0) + change.oldQty;
+        data.movements.push({id:uid('mov'), productId:originalProduct.id, type:'in', qty:change.oldQty,
+          note:'Correção de pedido: estorno da baixa anterior', clientId, purchaseId:key, createdAt:new Date().toISOString()});
+      }
+      if (selectedProduct) {
+        selectedProduct.qty = Number(selectedProduct.qty || 0) - newStockQty;
+        data.movements.push({id:uid('mov'), productId:selectedProduct.id, type:'out', qty:newStockQty,
+          note:'Correção de pedido: ' + name, clientId, purchaseId:key, createdAt:new Date().toISOString()});
+      }
     }
+    const removedIds = new Set(original.map(i => i.id));
+    data.installments = data.installments.filter(i => !removedIds.has(i.id)).concat(plan);
+    data.purchaseEdits ||= [];
+    data.purchaseEdits.push({id:uid('edit'), clientId, purchaseId:key,
+      oldTotal:original.reduce((s,i) => s + Number(i.amount || 0),0), newTotal:total,
+      oldCount:original.length, newCount:count, productName:name,
+      date:new Date().toISOString()});
   });
   const editor = document.getElementById('purchaseEditModal');
   editor.addEventListener('hidden.bs.modal', () => openClientDetails(clientId, showToast), { once: true });
   bootstrap.Modal.getOrCreateInstance(editor).hide();
-  showToast('Dados desta compra atualizados sem alterar as outras vendas.');
+  showToast('Pedido atualizado. Pagamentos anteriores preservados.');
 }
+
 function openClientModal(id = null) {
   const form = document.getElementById('clientForm');
   purchaseClientId = null;
@@ -162,6 +327,7 @@ function openClientModal(id = null) {
     document.getElementById('clientPhone').value = c.phone || '';
     document.getElementById('clientEmail').value = c.email || '';
     document.getElementById('clientNotes').value = c.notes || '';
+    renderOrdersInClientEditor(id);
   }
   clientModal.show();
 }
@@ -301,7 +467,7 @@ function renderPurchaseSections(installments, settings, clientId) {
     const paid = group.items.filter(item => item.paidAt).length;
     const firstOpen = group.items.find(item => !item.paidAt);
     const productName = group.items.find(item => item.purchaseName)?.purchaseName || 'Produto não informado';
-    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div>' + '<div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-light" data-edit-purchase="' + escapeHtml(group.items[0].purchaseId || 'legacy-purchase') + '" data-client-id="' + escapeHtml(clientId) + '"><i class="bi bi-pencil me-1"></i>Editar compra</button>' + (firstOpen ? '<button class="btn btn-sm btn-outline-success" data-toggle-payment="' + firstOpen.id + '" data-client-id="' + clientId + '"><i class="bi bi-cash-coin me-1"></i>Abater valor desta venda</button>' : '<span class="small text-success"><i class="bi bi-check-circle me-1"></i>Venda quitada</span>') + '</div></div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
+    return '<section class="purchase-section mb-4"><div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-2"><div><h3 class="h6 mb-1">Compra ' + (index + 1) + ' — ' + escapeHtml(productName) + '</h3><div class="small text-secondary">' + brl.format(total) + ' · ' + paid + '/' + group.items.length + ' parcelas quitadas</div></div>' + '<div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-light" data-edit-purchase="' + escapeHtml(group.items[0].purchaseId || 'legacy-purchase') + '" data-client-id="' + escapeHtml(clientId) + '"><i class="bi bi-pencil me-1"></i>Editar pedido</button>' + (firstOpen ? '<button class="btn btn-sm btn-outline-success" data-toggle-payment="' + firstOpen.id + '" data-client-id="' + clientId + '"><i class="bi bi-cash-coin me-1"></i>Abater valor desta venda</button>' : '<span class="small text-success"><i class="bi bi-check-circle me-1"></i>Venda quitada</span>') + '</div></div><div class="installment-list">' + group.items.map(item => installmentRow(item, settings, clientId)).join('') + '</div></section>';
   }).join('') || '<div class="empty-state">Nenhuma compra registrada.</div>';
 }
 
