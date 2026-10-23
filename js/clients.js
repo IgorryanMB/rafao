@@ -213,7 +213,8 @@ function editPurchaseSchedule(items, total, count, firstDue, name, stockMeta) {
   for (let number = 1; number <= count; number++) {
     const old = oldByNumber.get(number);
     if (settledNumbers.has(number)) {
-      next.push({...old, purchaseName: name, ...stockMeta});
+      const {stockProductId, stockQty, saleCostTotal, ...previous} = old;
+      next.push({...previous, purchaseName: name, ...stockMeta});
       continue;
     }
     const hasPartial = Number(old?.paidAmount || 0) > 0;
