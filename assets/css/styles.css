@@ -99,3 +99,13 @@ body{margin:0;background:radial-gradient(circle at 85% 10%,rgba(216,169,74,.08),
 #clientOrdersList .stack-item > .flex-grow-1{min-width:155px;overflow-wrap:anywhere}
 #purchaseEditStockHint{line-height:1.5}
 #purchaseEditModal .modal-dialog{max-width:610px}
+
+/* Ações do comprovante: WhatsApp em destaque, impressão e imagem como alternativas. */
+.pro-receipt-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.pro-receipt-actions .btn{white-space:normal;min-height:40px}
+.pro-receipt-actions #proShareReceipt{font-weight:750;min-width:200px}
+#proTextReceipt{white-space:normal;text-align:left}
+@media(max-width:575.98px){
+  .pro-receipt-actions .btn{flex:1 1 calc(50% - 8px);min-width:0;padding:.55rem .45rem;font-size:.8rem}
+  .pro-receipt-actions #proShareReceipt{order:-1;flex:1 1 100%;font-size:.94rem;min-width:0}
+}
