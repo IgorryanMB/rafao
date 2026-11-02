@@ -223,7 +223,7 @@
   }
 
   function receiptMessage(r) {
-    return '🧾 *JV PERFUMES — COMPROVANTE DE PAGAMENTO*\n\n'
+    return 'Olá, ' + r.name + '! 😊\n\nAqui está seu comprovante de pagamento. Muito obrigado pela confiança em nós! 💛\n\n🧾 *Detalhes do recibo*\n'
       + '*Cliente:* ' + r.name + '\n'
       + '*Perfume:* ' + r.perfume + '\n'
       + '*Data:* ' + r.date + '\n'
@@ -342,7 +342,7 @@
       await navigator.share({
         files: [file],
         title: 'Comprovante de pagamento — JV Perfumes',
-        text: 'Comprovante JV Perfumes · ' + info.name + ' · ' + money.format(info.total)
+        text: 'Olá, ' + info.name + '! 😊\n\nAqui está seu comprovante de pagamento. Muito obrigado pela confiança em nós! 💛'
       });
     } catch (error) {
       if (error?.name !== 'AbortError' && hint) {
