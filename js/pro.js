@@ -204,18 +204,203 @@
     window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(text), '_blank', 'noopener,noreferrer');
   }
 
+
+  function receiptInfo(id) {
+    const data = read();
+    const p = (data.paymentHistory || []).find(p => p.id === id && !p.reversedAt);
+    if (!p) return null;
+    const c = (data.clients || []).find(c => c.id === p.clientId);
+    const sale = getSales(data).find(s => s.clientId === p.clientId && s.key === (p.purchaseId || 'legacy:' + p.clientId));
+    return {
+      id: p.id,
+      name: p.clientName || c?.name || 'Cliente',
+      perfume: p.purchaseName || sale?.productName || 'Produto não informado',
+      date: dateOf(p.createdAt),
+      total: amount(p.applied ?? p.amount),
+      balance: p.balanceAfter == null ? 'Não registrado' : money.format(amount(p.balanceAfter)),
+      phone: numberPhone(c?.phone)
+    };
+  }
+
+  function receiptMessage(r) {
+    return '🧾 *JV PERFUMES — COMPROVANTE DE PAGAMENTO*\n\n'
+      + '*Cliente:* ' + r.name + '\n'
+      + '*Perfume:* ' + r.perfume + '\n'
+      + '*Data:* ' + r.date + '\n'
+      + '*Valor recebido:* ' + money.format(r.total) + '\n'
+      + '*Saldo após pagamento:* ' + r.balance + '\n'
+      + '*Nº do recibo:* ' + r.id + '\n\n'
+      + 'Obrigado pela preferência!\n_Comprovante de recebimento, não fiscal._';
+  }
+
+  function receiptPngFile(r) {
+    // O recibo é desenhado localmente no navegador. Nenhum dado é enviado a servidores.
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1620;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Imagem indisponível');
+    ctx.fillStyle = '#e9eef4'; ctx.fillRect(0, 0, 1080, 1620);
+    ctx.fillStyle = '#fff'; ctx.fillRect(55, 55, 970, 1510);
+    const header = ctx.createLinearGradient(55, 55, 1025, 395);
+    header.addColorStop(0, '#071728'); header.addColorStop(1, '#172f48');
+    ctx.fillStyle = header; ctx.fillRect(55, 55, 970, 340);
+    ctx.fillStyle = '#d8a94a'; ctx.fillRect(55, 387, 970, 8);
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#f2cf7f'; ctx.font = 'bold 46px Arial, sans-serif';
+    ctx.fillText('JV PERFUMES', 115, 105);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 63px Arial, sans-serif';
+    ctx.fillText('Comprovante', 115, 200);
+    ctx.fillStyle = '#d8e3ef'; ctx.font = '34px Arial, sans-serif';
+    ctx.fillText('de pagamento recebido', 115, 294);
+
+    const wrap = (value, maxWidth, maxLines, font) => {
+      ctx.font = font;
+      const words = String(value || '').split(/\s+/);
+      const lines = []; let current = '';
+      for (const word of words) {
+        const candidate = current ? current + ' ' + word : word;
+        if (ctx.measureText(candidate).width > maxWidth && current) {
+          lines.push(current); current = word;
+        } else current = candidate;
+      }
+      if (current) lines.push(current);
+      const result = lines.slice(0, maxLines);
+      if (lines.length > maxLines && result.length) {
+        let last = result[result.length - 1];
+        while (last.length > 1 && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
+        result[result.length - 1] = last + '…';
+      }
+      return result;
+    };
+    const field = (label, value, y, maxLines) => {
+      ctx.fillStyle = '#67788a'; ctx.font = 'bold 27px Arial, sans-serif';
+      ctx.fillText(label.toUpperCase(), 115, y);
+      ctx.fillStyle = '#172536'; ctx.font = 'bold 38px Arial, sans-serif';
+      wrap(value, 845, maxLines, 'bold 38px Arial, sans-serif')
+        .forEach((line, index) => ctx.fillText(line, 115, y + 43 + index * 48));
+    };
+    field('Cliente', r.name, 465, 2);
+    field('Perfume', r.perfume, 650, 3);
+    field('Data do pagamento', r.date, 925, 1);
+    field('Saldo após pagamento', r.balance, 1050, 1);
+
+    ctx.fillStyle = '#f6ebd2'; ctx.fillRect(105, 1180, 870, 225);
+    ctx.fillStyle = '#805710'; ctx.font = 'bold 28px Arial, sans-serif';
+    ctx.fillText('VALOR RECEBIDO', 145, 1210);
+    ctx.font = 'bold 70px Arial, sans-serif';
+    ctx.fillText(money.format(r.total), 145, 1270);
+    ctx.fillStyle = '#627182'; ctx.font = '23px Arial, sans-serif';
+    ctx.fillText(wrap('Recibo: ' + r.id, 850, 1, '23px Arial, sans-serif')[0], 115, 1470);
+    ctx.fillText('Registro de recebimento. Não é documento fiscal.', 115, 1515);
+
+    const base64 = canvas.toDataURL('image/png').split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const name = String(r.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'pagamento';
+    return new File([bytes], 'Comprovante-JV-Perfumes-' + name + '.png', { type: 'image/png' });
+  }
+
+  function openReceiptWhatsApp(r) {
+    const message = encodeURIComponent(receiptMessage(r));
+    const url = r.phone
+      ? 'https://wa.me/' + r.phone + '?text=' + message
+      : 'https://api.whatsapp.com/send?text=' + message;
+    // WhatsApp pré-preenche o texto; o usuário confirma o envio.
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  async function shareReceipt(id) {
+    const info = receiptInfo(id);
+    if (!info) { alert('Pagamento não encontrado ou cancelado.'); return; }
+    const hint = document.getElementById('proReceiptShareHint');
+    const button = document.getElementById('proShareReceipt');
+    if (hint) hint.textContent = '';
+    let file;
+    try { file = receiptPngFile(info); }
+    catch (error) {
+      openReceiptWhatsApp(info);
+      if (hint) hint.textContent = 'Não foi possível gerar a imagem. O WhatsApp foi aberto com um comprovante em texto.';
+      return;
+    }
+    let canShareFile = false;
+    try {
+      canShareFile = typeof navigator.share === 'function'
+        && typeof navigator.canShare === 'function'
+        && navigator.canShare({ files: [file] });
+    } catch (error) { canShareFile = false; }
+    if (!canShareFile) {
+      openReceiptWhatsApp(info);
+      if (hint) hint.textContent = 'O WhatsApp abriu com o recibo em texto. Para enviar a imagem, use “Baixar imagem” e anexe-a à conversa.';
+      return;
+    }
+    if (button) button.disabled = true;
+    try {
+      // A folha nativa de compartilhamento inclui o WhatsApp quando instalado;
+      // o usuário escolhe WhatsApp, o destinatário e confirma o envio.
+      await navigator.share({
+        files: [file],
+        title: 'Comprovante de pagamento — JV Perfumes',
+        text: 'Comprovante JV Perfumes · ' + info.name + ' · ' + money.format(info.total)
+      });
+    } catch (error) {
+      if (error?.name !== 'AbortError' && hint) {
+        hint.textContent = 'Não foi possível compartilhar a imagem. Use “Baixar imagem” ou “WhatsApp em texto”.';
+      }
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  function downloadReceiptPng(id) {
+    const info = receiptInfo(id);
+    if (!info) { alert('Pagamento não encontrado ou cancelado.'); return; }
+    try {
+      const file = receiptPngFile(info);
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url; a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    } catch (error) {
+      document.getElementById('proReceiptShareHint').textContent = 'Este navegador não conseguiu gerar a imagem do comprovante.';
+    }
+  }
+
   function ensureReceiptModal() {
     if (document.getElementById('proReceiptModal')) return;
-    document.body.insertAdjacentHTML('beforeend', '<div class="modal fade" tabindex="-1" id="proReceiptModal"><div class="modal-dialog modal-dialog-centered"><div class="modal-content modal-dark"><div class="modal-header"><h2 class="modal-title h5">Comprovante de pagamento</h2><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><div id="receiptPrintSection"></div><p class="small text-secondary mt-3 mb-0">Recibo gerado com base no pagamento registrado no sistema. Não é documento fiscal.</p></div><div class="modal-footer"><button class="btn btn-outline-light" data-bs-dismiss="modal">Fechar</button><button class="btn btn-gold" id="proPrintReceipt"><i class="bi bi-printer me-1"></i>Imprimir / salvar PDF</button></div></div></div></div>');
+    document.body.insertAdjacentHTML('beforeend',
+      '<div class="modal fade" tabindex="-1" id="proReceiptModal" aria-labelledby="proReceiptTitle">'
+      + '<div class="modal-dialog modal-dialog-centered"><div class="modal-content modal-dark">'
+      + '<div class="modal-header"><h2 class="modal-title h5" id="proReceiptTitle">Comprovante de pagamento</h2><button class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button></div>'
+      + '<div class="modal-body"><div id="receiptPrintSection"></div><p class="small text-secondary mt-3 mb-0">Recibo gerado com base no pagamento registrado no sistema. Não é documento fiscal.</p><div id="proReceiptShareHint" class="small text-secondary mt-2" role="status" aria-live="polite"></div></div>'
+      + '<div class="modal-footer pro-receipt-actions">'
+      + '<button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Fechar</button>'
+      + '<button type="button" class="btn btn-outline-light" id="proDownloadReceipt"><i class="bi bi-image me-1"></i>Baixar imagem</button>'
+      + '<button type="button" class="btn btn-outline-light" id="proPrintReceipt"><i class="bi bi-printer me-1"></i>Salvar PDF</button>'
+      + '<button type="button" class="btn btn-success" id="proShareReceipt"><i class="bi bi-whatsapp me-1"></i>Enviar no WhatsApp</button>'
+      + '</div></div></div></div>');
     document.getElementById('proPrintReceipt').addEventListener('click', () => {
       document.body.classList.add('pro-print-receipt');
       window.print();
     });
+    document.getElementById('proShareReceipt').addEventListener('click', () => {
+      const id = document.getElementById('proReceiptModal').dataset.receiptId;
+      if (id) shareReceipt(id);
+    });
+    document.getElementById('proDownloadReceipt').addEventListener('click', () => {
+      const id = document.getElementById('proReceiptModal').dataset.receiptId;
+      if (id) downloadReceiptPng(id);
+    });
   }
+
   function showReceipt(id) {
     const data = read(), p = (data.paymentHistory || []).find(x => x.id === id && !x.reversedAt);
     if (!p) { alert('Pagamento não encontrado no histórico.'); return; }
     ensureReceiptModal();
+    document.getElementById('proReceiptModal').dataset.receiptId = id;
+    document.getElementById('proReceiptShareHint').textContent = '';
     const c = (data.clients || []).find(x => x.id === p.clientId);
     const sale = getSales(data).find(s => s.clientId === p.clientId && s.key === (p.purchaseId || 'legacy:' + p.clientId));
     const balanceAfter = p.balanceAfter != null ? money.format(amount(p.balanceAfter)) : 'Não registrado na data';
