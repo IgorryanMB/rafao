@@ -374,7 +374,7 @@
       '<div class="modal fade" tabindex="-1" id="proReceiptModal" aria-labelledby="proReceiptTitle">'
       + '<div class="modal-dialog modal-dialog-centered"><div class="modal-content modal-dark">'
       + '<div class="modal-header"><h2 class="modal-title h5" id="proReceiptTitle">Comprovante de pagamento</h2><button class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button></div>'
-      + '<div class="modal-body"><div id="receiptPrintSection"></div><p class="small text-secondary mt-3 mb-0">Recibo gerado com base no pagamento registrado no sistema. Não é documento fiscal.</p><div id="proReceiptShareHint" class="small text-secondary mt-2" role="status" aria-live="polite"></div></div>'
+      + '<div class="modal-body"><div id="receiptPrintSection"></div><p class="small text-secondary mt-3 mb-0">Recibo gerado com base no pagamento registrado no sistema. Não é documento fiscal.</p><div id="proReceiptShareHint" class="small text-secondary mt-2" role="status" aria-live="polite"></div><button type="button" id="proTextReceipt" class="btn btn-link btn-sm text-success mt-1 ps-0"><i class="bi bi-chat-text me-1"></i>Abrir conversa do WhatsApp com recibo em texto</button></div>'
       + '<div class="modal-footer pro-receipt-actions">'
       + '<button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Fechar</button>'
       + '<button type="button" class="btn btn-outline-light" id="proDownloadReceipt"><i class="bi bi-image me-1"></i>Baixar imagem</button>'
@@ -388,6 +388,11 @@
     document.getElementById('proShareReceipt').addEventListener('click', () => {
       const id = document.getElementById('proReceiptModal').dataset.receiptId;
       if (id) shareReceipt(id);
+    });
+    document.getElementById('proTextReceipt').addEventListener('click', () => {
+      const id = document.getElementById('proReceiptModal').dataset.receiptId;
+      const info = id && receiptInfo(id);
+      if (info) openReceiptWhatsApp(info);
     });
     document.getElementById('proDownloadReceipt').addEventListener('click', () => {
       const id = document.getElementById('proReceiptModal').dataset.receiptId;
